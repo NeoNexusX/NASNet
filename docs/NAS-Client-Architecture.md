@@ -1,6 +1,6 @@
 **NASNet 技术方案：多地址优先级与协议独立建模**
 
-修订日期：2026-10-18。目标平台为 Windows、macOS、Linux。本文描述技术设计，尚未进行代码实现或 NAS 实机验证。示例地址和配置均用于说明模型。
+修订日期：2026-10-23。目标平台为 Windows、macOS、Linux。本文描述完整技术设计；当前 Rust 代码使用一个包、一个二进制 crate，通过 model、demo 模块组织代码。课程已合并为 12 课，完整安排写在 src/main.rs 和[课程大纲](Course-Syllabus.md)。第 1 课和第 2 课 A 的设备、地址及基础校验已完成，课程测试已按要求移除。当前第 2 课 B 的 NFS/SMB 校验与分派留作 TODO 10、11、12，使用保留编号 lesson04 的演示观察结果。协议访问、存储和系统挂载尚未实现，也未进行 NAS 实机验证。分阶段交付见[项目实现方案](Implementation-Plan.md)，学习方式见 [Rust 学习方案](Rust-Learning-Plan.md)。
 
 协议后端选型已确定：NFS 使用 libnfs，SMB 使用 libsmb2，由 Rust 通过 FFI 调用；直接按该方案实现。
 
@@ -308,25 +308,25 @@ Windows 盘符映射属于用户登录会话，需在对应用户会话中处理
 
 界面仅包含设备及地址配置、协议连接表单、远程文件浏览、协议权限信息和本地挂载设置。NFS 与 SMB 使用不同的连接表单和权限面板。地址表仅显示 IP/域名、优先级、连接结果和当前使用情况。
 
-建议模块：
+以下按逻辑职责列出后续模块；当前只创建 model、demo，其余随功能逐步增加，优先在同一 crate 内组织：
 
 ~~~text
 desktop-ui       Vue / Tailwind 界面
-nas-agent        独立用户后台、自动连接与挂载
-nas-model        Device、Address 与协议区分模型
-nas-router       按优先级选择地址
-nas-nfs          NFS 连接、文件读取与权限操作
-nas-smb          SMB 连接、文件读取与安全信息操作
-nas-nfs-sys      libnfs 原生构建与底层 FFI 绑定
-nas-smb-sys      libsmb2 原生构建与底层 FFI 绑定
-nas-mount        各系统挂载实现
-nas-store        配置与凭据引用
-nas-ipc          界面与后台通信
+agent            用户后台调度、自动连接与挂载
+model            Device、Address 与协议区分模型
+router           按优先级选择地址
+nfs              NFS 连接、文件读取与权限操作
+smb              SMB 连接、文件读取与安全信息操作
+nfs::ffi         libnfs 底层 FFI 绑定
+smb::ffi         libsmb2 底层 FFI 绑定
+mount            各系统挂载实现
+store            配置与凭据引用
+ipc              界面与后台通信
 ~~~
 
 协议适配器负责各自的连接参数、认证、错误与权限语义。公共层只统一设备、地址顺序、连接状态和必要的文件读取入口。
 
-nas-nfs-sys 与 nas-smb-sys 是本项目内部维护的 crate 名称；nas-nfs 与 nas-smb 在其上封装安全的 Rust 接口。
+nfs::ffi 与 smb::ffi 是协议模块内部维护的底层绑定；nfs 与 smb 在其上封装安全的 Rust 接口。职责划分优先通过模块表达。桌面壳和独立用户后台需要不同进程入口时，再确定对应的构建组织，不预先要求每个模块成为独立包。
 
 **十三、实现行为要求。**
 
@@ -344,14 +344,14 @@ nas-nfs-sys 与 nas-smb-sys 是本项目内部维护的 crate 名称；nas-nfs �
 
 **十四、依赖管理与跨平台构建。** NFS 后端固定为 libnfs，SMB 后端固定为 libsmb2。协议库选型已经完成，后续工作按这两个 C 库的 FFI 接入方案开展。
 
-前端使用 npm，提交 package-lock.json，构建使用 npm ci。Rust 使用 Cargo workspace 统一管理桌面壳、用户后台、共享核心与 FFI crate，提交 Cargo.lock，发布构建使用 --locked。共享 Rust 依赖在 workspace.dependencies 集中声明，平台专属依赖使用 target 条件配置。项目用 rust-toolchain.toml 固定 Rust 版本；Node 版本同样固定在开发和 CI 配置中。
+前端使用 npm，提交 package-lock.json，构建使用 npm ci。Rust 当前采用单包结构，设备、路由、协议、存储等职责在 crate 内按模块组织，提交 Cargo.lock，发布构建使用 --locked。Rust 依赖在根 Cargo.toml 中声明，平台专属依赖使用 target 条件配置。出现独立构建或复用的实际需求时，再评估是否需要多个包或 workspace。后续工程化阶段使用 rust-toolchain.toml 固定 Rust 版本；Node 版本同样固定在开发和 CI 配置中。
 
 协议适配模块只向应用暴露本项目的接口，C 库类型不进入公共设备、权限和 IPC 模型。每种协议使用一个固定实现。
 
 | 协议 | C 库 | 底层绑定 | Rust 安全封装 |
 |---|---|---|---|
-| NFS | libnfs | nas-nfs-sys | nas-nfs |
-| SMB2/3 | libsmb2 | nas-smb-sys | nas-smb |
+| NFS | libnfs | nfs::ffi | nfs |
+| SMB2/3 | libsmb2 | smb::ffi | smb |
 
 上述绑定由项目维护，并与固定的 C 库版本配套。底层绑定封装原生构建、链接配置和 C 函数声明；高层适配器封装连接上下文、目录与文件句柄、错误转换，以及异步回调与 Rust 任务之间的衔接。
 
@@ -359,11 +359,11 @@ nas-nfs-sys 与 nas-smb-sys 是本项目内部维护的 crate 名称；nas-nfs �
 
 NFS 适配器通过 libnfs 处理导出连接、AUTH_SYS 身份、目录与文件读取，以及库支持且服务器授权的权限操作。SMB 适配器通过 libsmb2 处理 SMB2/3 协商、账号认证、目录与文件读取，以及库支持且服务器授权的安全信息操作。协议与权限模型沿用前文定义。
 
-Cargo 通过内部 FFI crate 的 build.rs 调用 cmake crate，再由系统 CMake 调用目标平台 C 编译器。Cargo 能编排构建，但不会代替编译器、链接器或系统 SDK：[Cargo 构建脚本](https://doc.rust-lang.org/cargo/reference/build-scripts.html)、[cmake crate](https://docs.rs/cmake/latest/cmake/)。
+接入原生库时，由包根目录的 build.rs 调用 cmake 构建依赖，再由系统 CMake 调用目标平台 C 编译器。Cargo 能编排构建，但不会代替编译器、链接器或系统 SDK：[Cargo 构建脚本](https://doc.rust-lang.org/cargo/reference/build-scripts.html)、[cmake crate](https://docs.rs/cmake/latest/cmake/)。
 
 ~~~text
 Cargo
-  → nas-nfs-sys / nas-smb-sys 的 build.rs
+  → 包根目录的 build.rs
     → CMake
       → 目标平台 C 编译器
         → libnfs / libsmb2 原生库
