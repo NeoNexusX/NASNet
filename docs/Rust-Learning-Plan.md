@@ -4,7 +4,7 @@
 
 按阶段验收推进，每轮完成一个能运行的小功能。默认由助手提供结构、接口、分层提示和验收方式，关键实现留作 TODO，由你亲手完成。先理解需求，再填写和运行；能够不照抄解释关键签名后，再进入下一阶段。已有语言基础的语法内容按需补齐。
 
-完整路线已合并为 **12 课**，每课整合两个原学习单元并增加动手和验收范围，详见[课程大纲](Course-Syllabus.md)。完整安排也写在 `src/main.rs` 顶部。当前第 1 课已完成，第 2 课进行中；原有四份讲义作为这两课的 A/B 小节保留，后续课程尚未创建实现。
+完整路线已合并为 **12 课**，每课整合两个原学习单元并增加动手和验收范围，详见[课程大纲](Course-Syllabus.md)。完整安排也写在 `src/main.rs` 顶部。第 1、2 课和第 3 课 A 已完成并检查通过；下一步在第 3 课 B 接入序列化与恢复时校验，后续课程尚未创建实现。
 
 ## 学习顺序
 
@@ -12,7 +12,7 @@
 |---|---|---|---|
 | 1，已完成 | 第 1 课前半 | `struct`、`impl`、`String`、`Vec`、所有权和借用 | 创建设备、添加地址、计数、改名 |
 | 2，已完成 | 第 1 课后半 | `Option`、`match`、迭代器和闭包 | 查找地址、稳定排序，原 10 项验收均已通过 |
-| 3，当前 | 第 2 课、第 3 课的封装部分 | `enum`、`Result`、`?`、切片、私有字段与生命周期 | 地址校验已完成，继续协议校验，再统一模型修改入口 |
+| 3，已完成 | 第 2 课、第 3 课的封装部分 | `enum`、`Result`、`?`、切片、私有字段与生命周期 | 地址和协议校验、受校验的模型修改入口均已完成 |
 | 4 | 第 3 课的序列化部分、第 4 课 | 外部依赖、派生 trait、序列化、存储接口与错误转换 | 配置保存恢复，密码使用系统凭据引用 |
 | 5 | 第 5～6 课、第 7 课的接口部分 | C ABI、裸指针、C 字符串、`unsafe`、`Drop`、业务 trait | 封装 C 句柄，经 libnfs/libsmb2 访问真实 NAS |
 | 6 | 第 7 课的异步部分、第 8～9 课 | 异步、线程、通道、`Send`/`Sync`、状态、取消与重连 | 可用终端版和安全的会话管理 |
@@ -23,24 +23,24 @@
 
 ## 当前怎么学
 
-当前是**第 2 课 B 小节**。A 小节的地址校验已检查通过，接着阅读[独立 NFS/SMB 配置](lessons/04-protocol-configs.md)，按以下顺序学习：
+**第 3 课 A 小节已完成**。可以对照[模型封装与生命周期](lessons/05-encapsulation-and-lifetimes.md)，按以下顺序复习并运行：
 
-1. 理解 `ConnectionConfig::Nfs(NfsConfig)` 与 `ConnectionConfig::Smb(SmbConfig)`，以及不同协议的身份模型。
-2. 填写 `NfsConfig::validate`，检查导出路径和可选端口。
-3. 填写 `SmbConfig::validate`，借用可选起始目录，检查共享、账号、凭据引用和端口。
-4. 填写 `ProtocolConnection::validate`，用 `match &self.config` 分派校验并传播错误。
-5. 运行协议配置小节演示，观察同设备保存两种协议连接和失败时不变的连接数量，理解 `&[ProtocolConnection]` 只读切片。
+1. 对照 `Device` 私有字段和只读方法，理解为什么公开候选值不等于可以任意修改已保存值。
+2. 阅读地址更新和删除的实现，理解先校验再更新，以及删除时取回所有权并保持其余顺序。
+3. 阅读连接查找的实现，理解返回引用借自设备，与查询字符串生命周期无关。
+4. 阅读连接更新和删除的实现，理解复用协议校验，以及失败时保留原数据。
+5. 运行 `lesson05`，对照讲义中的更新、删除、错误优先顺序和最终列表验收。
 
 在项目根目录检查编译并运行当前演示：
 
 ```sh
 cargo check --locked
-cargo run -- lesson04
+cargo run -- lesson05
 ```
 
-这里的 `lesson01`～`lesson04` 沿用既有演示编号：01/02 对应新第 1 课的 A/B 小节，03/04 对应新第 2 课的 A/B 小节，不代表四个新课程。
+这里的 `lesson01`～`lesson05` 是演示小节编号：01/02 对应第 1 课 A/B，03/04 对应第 2 课 A/B，05 对应第 3 课 A，不代表五个大课。
 
-已按要求删除课程测试代码，本轮不新增测试文件，继续用讲义中的预期输出观察行为。新函数仍有 `todo!()` 时，演示会停止在第一处未完成的函数；编译成功不代表练习完成。
+已按要求删除课程测试代码，本轮未新增测试文件。编译、格式和 Clippy 检查均通过，五个演示均能完整运行，`lesson05` 的结果已与讲义预期核对。下一步进入第 3 课 B，学习配置数据转换、Serde 序列化和恢复时校验。
 
 这一阶段先专注安全 Rust，C 指针、`unsafe` 和资源释放安排在新第 5 课，结合 C FFI 和资源封装一起学习。
 
@@ -54,10 +54,10 @@ cargo run -- lesson04
 
 当前维持一个包、一个 crate，优先通过模块整理代码。只有出现明确的独立构建或复用需求时，再讨论是否拆包；学习新功能不要求先创建新的 crate。
 
-前三个原小节的实现已保留并检查通过，已清理对应学习提示；它们组成新第 1 课和第 2 课 A 小节。当前 B 小节留有 TODO 10、11、12。连接列表私有，只能通过校验入口追加和只读切片访问；地址仍保留公开字段和旧 `add_address`，第 3 课继续收紧模型修改入口。
+五个小节已完成并检查通过，对应第 1、2 课和第 3 课 A。旧的无校验 `add_address` 已移除；设备字段与两个列表都私有，只通过方法修改和只读借用。`src/model/device.rs` 的五个新增方法已完成，相关错误变体的临时豁免已清理。`src/model.rs` 只负责模块声明和重导出；地址、NFS/SMB 配置及错误类型分别在各自模块中维护。
 
 ## 推荐阅读
 
 第一课需要时复习[所有权与借用](https://doc.rust-lang.org/book/ch04-00-understanding-ownership.html)、[结构体与方法](https://doc.rust-lang.org/book/ch05-00-structs.html)和 [Vec](https://doc.rust-lang.org/book/ch08-01-vectors.html)，不必先通读全书。
 
-当前阅读[枚举与模式匹配](https://doc.rust-lang.org/book/ch06-00-enums.html)和[可恢复错误、Result 与 ?](https://doc.rust-lang.org/book/ch09-02-recoverable-errors-with-result.html)中用到的部分；需要时复习[迭代器](https://doc.rust-lang.org/book/ch13-02-iterators.html)。
+当前阅读[模块可见性](https://doc.rust-lang.org/book/ch07-03-paths-for-referring-to-an-item-in-the-module-tree.html)和[生命周期](https://doc.rust-lang.org/book/ch10-03-lifetime-syntax.html)中与返回引用有关的部分；需要时复习[迭代器](https://doc.rust-lang.org/book/ch13-02-iterators.html)。本轮先理解引用来自哪里，不要求编写复杂生命周期参数。

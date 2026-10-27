@@ -1,6 +1,6 @@
 //! NASNet Rust 学习与项目实现：12 课课程安排。
 //!
-//! 进度：第 1 课已完成；第 2 课进行中（地址校验完成，协议校验待完成）。
+//! 进度：第 1、2 课和第 3 课 A 已完成；下一步第 3 课 B（配置序列化与恢复时校验）。
 //! 每课整合两个原学习单元，增加完整功能、动手实现和验收范围；可以分多轮完成。
 //! 本课程表是长期项目安排，检查完成练习时保留；只清理对应实现中的临时学习提示。
 //! 详细大纲：docs/Course-Syllabus.md。
@@ -80,7 +80,9 @@
 //! 运行入口仍采用原有演示编号，与合并后的课号分开：
 //!   lesson01、lesson02 → 第 1 课的模型、查询与排序小节。
 //!   lesson03、lesson04 → 第 2 课的地址校验、协议配置小节。
-//! 默认运行 lesson01；当前练习运行 cargo run -- lesson04。
+//!   lesson05 → 第 3 课 A 的模型封装、查找和更新/删除小节。
+//! 默认运行 lesson01；最近完成的小节运行 cargo run -- lesson05。
+//! 下一步接入第 3 课 B 的配置序列化与恢复时校验。
 //! 后续课程尚未实现，不预先生成占位代码；保持单包结构，按需求增加模块。
 
 mod demo;
@@ -93,8 +95,11 @@ fn main() {
         Some("lesson02") => demo::run_lesson02(),
         Some("lesson03") => demo::run_lesson03(),
         Some("lesson04") => demo::run_lesson04(),
+        Some("lesson05") => demo::run_lesson05(),
         Some(other) => {
-            eprintln!("未知课程：{other}。可选 lesson01、lesson02、lesson03 或 lesson04。");
+            eprintln!(
+                "未知课程：{other}。可选 lesson01、lesson02、lesson03、lesson04 或 lesson05。"
+            );
             std::process::exit(2);
         }
     }

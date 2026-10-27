@@ -1,12 +1,12 @@
 # 第 1 课 A：设备与地址模型
 
-本小节的 4 个方法已经完成并通过验收，以下保留说明供复习。课程已合并为 12 课，本文件是第 1 课 A；演示命令仍为 `lesson01`。验收测试已移除。当前练习见[第 2 课 B：独立协议配置](04-protocol-configs.md)，本课后半见[B：查询与排序](02-address-lookup-and-priority.md)。
+本小节的 4 个方法已经完成并通过验收，以下保留说明供复习。课程已合并为 12 课，本文件是第 1 课 A；演示命令仍为 `lesson01`。验收测试已移除。当前练习见[第 3 课 A：封装与生命周期](05-encapsulation-and-lifetimes.md)，本课后半见[B：查询与排序](02-address-lookup-and-priority.md)。
 
 本课练习结构体 `struct`、关联函数和方法 `impl`、列表 `Vec`，同时巩固所有权和借用。
 
 ## 从哪里开始
 
-打开 `src/model/mod.rs`，对照 `new`、`add_address`、`address_count`、`rename` 的签名和实现复习。当前待填写的方法位于 `src/model/connection.rs`，对应第 2 课 B。
+打开 `src/model/device.rs`，对照 `new`、`try_add_address`、`address_count`、`rename` 的签名和实现复习。地址模型位于 `src/model/address.rs`。第 3 课已移除旧的 `add_address`，添加统一经过校验；下文保留早期练习要求作为历史说明。第 3 课 A 的五个方法也已完成，位于 `device.rs`。
 
 `todo!()` 是合法的 Rust 占位宏：代码能够编译，但执行到这里会停止并显示提示。因此，`cargo check` 成功只表示类型和语法通过，不代表练习已经完成。
 
@@ -25,9 +25,9 @@ cargo check
 
 设备拥有地址列表，列表拥有每个 `Address`，地址又拥有各自的字符串。`Vec<Address>` 可以先理解为只保存 `Address` 的动态列表。
 
-字段目前公开，方便观察；配置校验和修改入口会在后续课程逐步完善。
+本课初版字段公开；第 3 课已把设备字段私有化，改用 `id()`、`name()`、`addresses()` 等只读方法观察，`Address` 仍可公开构造为候选值。
 
-## 4 个填空任务
+## 最初完成的 4 个任务（历史签名）
 
 | 顺序 | 待实现的函数 | 应该完成的行为 | 重点 |
 |---|---|---|---|
@@ -79,8 +79,8 @@ cargo run -- lesson01
 填写完成后，阅读 `src/demo.rs`，试着解释：
 
 1. `Device::new(..., name)` 为什么可以让设备长期保存名称？原来的 `name` 还能继续使用吗？
-2. `device.add_address(first_address)` 为什么既有借用，也有所有权移动？
-3. `show_device(&device)` 中，为什么循环借用 `&device.addresses`？
+2. `device.try_add_address(first_address)` 为什么既有借用，也有所有权移动？
+3. `show_device(&device)` 中，为什么通过 `device.addresses()` 借用地址切片？
 4. `name_ref` 最后一次使用后，为什么可以再调用 `rename`？
 
 最后一个问题可以做编译实验：在 `rename(...)` 后再次打印 `name_ref`，运行 `cargo check`，观察借用冲突。理解后撤销这次实验，恢复可运行状态。
@@ -93,8 +93,8 @@ cargo run -- lesson01
 
 `demo.rs` 从 `crate::model` 引入模型，`crate::` 表示从当前 crate 的根模块开始查找。同一个 crate 内使用模块，不需要添加包依赖。
 
-这里采用目录式布局：`src/model/mod.rs` 保存设备与地址模型，第三课增加的 `src/model/validation.rs` 保存校验职责。`mod.rs` 与原先的同名文件入口是 Rust 支持的两种组织方式，模块路径都仍是 `crate::model`。
+这里采用 Rust 2018 风格的 non-mod-rs 布局：`src/model.rs` 是模块入口，只声明子模块并统一导出；设备和地址分别位于 `src/model/device.rs`、`src/model/address.rs`，连接及其协议配置位于 `src/model/connection.rs` 和 `src/model/connection/`，错误类型位于 `src/model/error.rs`。入口文件与同名子目录并列，不创建 `src/model/mod.rs`；模块路径仍是 `crate::model`。参见 [Rust 2018 模块路径说明](https://doc.rust-lang.org/edition-guide/rust-2018/path-changes.html)。
 
-文件移动不改变可见性。其他模块仍通过公开的类型和方法使用模型；子模块的接口可以由父模块通过 `pub use` 导出。
+其他模块仍通过 `crate::model` 导出的公开类型和方法使用模型。`Device` 定义在 `model::device` 子模块中，字段保持私有，列表修改通过它提供的方法完成；子模块的公开接口由父模块通过 `pub use` 导出。
 
 参考：[Rust Book：结构体与方法](https://doc.rust-lang.org/book/ch05-00-structs.html)、[Vec 与借用遍历](https://doc.rust-lang.org/book/ch08-01-vectors.html)、[模块文件布局](https://doc.rust-lang.org/book/ch07-02-defining-modules-to-control-scope-and-privacy.html)、[测试组织与私有函数](https://doc.rust-lang.org/book/ch11-03-test-organization.html)。

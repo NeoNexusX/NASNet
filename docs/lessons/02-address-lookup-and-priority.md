@@ -1,8 +1,10 @@
 # 第 1 课 B：地址查找与优先级排序
 
-本小节的查找与排序已完成并通过 6 项验收，测试代码已移除。课程合并后，本文件是第 1 课 B，演示命令仍为 `lesson02`。以下说明供复习，当前练习见[第 2 课 B：独立协议配置](04-protocol-configs.md)。
+本小节的查找与排序已完成并通过 6 项验收，测试代码已移除。课程合并后，本文件是第 1 课 B，演示命令仍为 `lesson02`。以下说明供复习，当前练习见[第 3 课 A：封装与生命周期](05-encapsulation-and-lifetimes.md)。
 
 这一课分两段做：先用 `Option` 表达“查得到或查不到”，完成练习 5；再学习引用列表和简单排序，完成练习 6。两个实现和第二课演示均已保留。
+
+查找和排序方法位于 `src/model/device.rs`，地址模型位于 `src/model/address.rs`；调用方仍从 `crate::model` 引入 `Device` 和 `Address`。
 
 ## 练习 5：按 ID 查找地址
 
@@ -101,6 +103,6 @@ cargo run -- lesson02
 
 第二课演示会查找 `address-2` 和不存在的 `missing`，展示排序后的候选地址，再展示原保存列表。候选顺序应为 `address-2、address-3、address-1`；原保存顺序仍是 `address-1、address-2、address-3`。
 
-`main.rs` 提供课程选择，`demo.rs` 提供 `match` 处理与展示。运行仍只操作内存，不会尝试连接 NAS。当前协议配置中的 TODO 不影响这两个演示。
+`main.rs` 提供课程选择，`demo.rs` 提供 `match` 处理与展示。运行仍只操作内存，不会尝试连接 NAS。第 3 课已把展示改为只读方法，新增的更新/删除 TODO 不影响这两个演示。
 
 参考：[Rust Book：Option](https://doc.rust-lang.org/book/ch06-01-defining-an-enum.html#the-option-enum-and-its-advantages-over-null-values)、[迭代器](https://doc.rust-lang.org/book/ch13-02-iterators.html)、[稳定的 sort_by_key](https://doc.rust-lang.org/std/primitive.slice.html#method.sort_by_key)。

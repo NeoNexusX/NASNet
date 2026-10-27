@@ -1,20 +1,19 @@
-//! 配置校验的错误类型和 Host 检查入口。
-//!
-//! 基础格式校验不包含 DNS 解析或网络探测。
+//! 设备、地址和协议配置使用的统一错误类型及其展示。
 
 use std::fmt;
 
-/// 配置校验失败的具体原因。
+/// 配置校验或模型操作失败的具体原因。
 #[derive(Debug)]
-#[allow(dead_code)] // TODO 10～12 完成后，移除未构造错误变体的临时豁免。
 pub enum ConfigError {
     EmptyAddressId,
     EmptyHost,
     HostContainsWhitespace,
     HostContainsSchemeOrPath,
     DuplicateAddressId(String),
+    AddressNotFound(String),
     EmptyConnectionId,
     DuplicateConnectionId(String),
+    ConnectionNotFound(String),
     InvalidNfsExportPath,
     InvalidSmbShareName,
     InvalidSmbBasePath,
@@ -36,8 +35,10 @@ impl fmt::Display for ConfigError {
                 )
             }
             Self::DuplicateAddressId(id) => write!(formatter, "地址 ID 已存在：{id}"),
+            Self::AddressNotFound(id) => write!(formatter, "地址 ID 不存在：{id}"),
             Self::EmptyConnectionId => write!(formatter, "连接 ID 不能为空"),
             Self::DuplicateConnectionId(id) => write!(formatter, "连接 ID 已存在：{id}"),
+            Self::ConnectionNotFound(id) => write!(formatter, "连接 ID 不存在：{id}"),
             Self::InvalidNfsExportPath => {
                 write!(formatter, "NFS 导出路径必须以 / 开头且不含空字符")
             }
@@ -58,18 +59,3 @@ impl fmt::Display for ConfigError {
 }
 
 impl std::error::Error for ConfigError {}
-
-/// 基础 Host 校验：不自动 trim 输入，不查询 DNS，不判断服务器能否访问。
-pub fn validate_host(host: &str) -> Result<(), ConfigError> {
-    let trim_result = host.trim();
-    if trim_result.is_empty() {
-        return Err(ConfigError::EmptyHost);
-    }
-    if host.chars().any(|c| c.is_whitespace()) {
-        return Err(ConfigError::HostContainsWhitespace);
-    }
-    if host.contains("://") || host.contains('/') || host.contains('\\') {
-        return Err(ConfigError::HostContainsSchemeOrPath);
-    }
-    Ok(())
-}

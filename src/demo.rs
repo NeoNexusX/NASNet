@@ -1,13 +1,13 @@
 use crate::model::{
-    Address, ConnectionConfig, Device, NfsAuthSys, NfsConfig, NfsVersion, ProtocolConnection,
-    SmbAuth, SmbConfig, SmbDialect, validate_host,
+    validate_host, Address, ConfigError, ConnectionConfig, Device, NfsAuthSys, NfsConfig,
+    NfsVersion, ProtocolConnection, SmbAuth, SmbConfig, SmbDialect,
 };
 
 fn show_device(device: &Device) {
-    println!("设备：{}（{}）", device.name, device.id);
+    println!("设备：{}（{}）", device.name(), device.id());
     println!("地址数量：{}", device.address_count());
 
-    for address in &device.addresses {
+    for address in device.addresses() {
         println!(
             "  {}：{}，优先级 {}",
             address.id, address.host, address.priority
@@ -27,17 +27,21 @@ pub fn run() {
         priority: 2,
     };
 
-    device.add_address(first_address);
-    device.add_address(Address {
-        id: String::from("address-2"),
-        host: String::from("nas.example.com"),
-        priority: 1,
-    });
+    device
+        .try_add_address(first_address)
+        .expect("演示地址应通过校验");
+    device
+        .try_add_address(Address {
+            id: String::from("address-2"),
+            host: String::from("nas.example.com"),
+            priority: 1,
+        })
+        .expect("演示地址应通过校验");
 
     println!("\n添加后，按添加顺序展示：");
     show_device(&device);
 
-    let name_ref = &device.name;
+    let name_ref = device.name();
     println!("\n修改前借用名称：{name_ref}");
     device.rename(String::from("家里的 NAS"));
 
@@ -53,11 +57,13 @@ pub fn run_lesson02() {
         ("address-2", "nas.example.com", 1),
         ("address-3", "10.20.30.10", 1),
     ] {
-        device.add_address(Address {
-            id: String::from(id),
-            host: String::from(host),
-            priority,
-        });
+        device
+            .try_add_address(Address {
+                id: String::from(id),
+                host: String::from(host),
+                priority,
+            })
+            .expect("演示地址应通过校验");
     }
 
     println!("\n按 ID 查找：");
@@ -304,6 +310,165 @@ pub fn run_lesson04() {
     }
 
     println!("\n保存的设备与连接：");
+    show_device(&device);
+    show_connections(&device);
+}
+
+fn show_result(label: &str, result: Result<(), ConfigError>) {
+    match result {
+        Ok(()) => println!("{label} → 成功"),
+        Err(error) => println!("{label} → 失败：{error}"),
+    }
+}
+
+pub fn run_lesson05() {
+    println!("NASNet 第 3 课 A：模型封装与生命周期（演示编号 lesson05）");
+    let mut device = Device::new(String::from("nas-1"), String::from("我的 NAS"));
+    for (id, host, priority) in [
+        ("address-1", "192.168.50.10", 2),
+        ("address-2", "nas.example.com", 1),
+        ("address-3", "10.20.30.10", 1),
+    ] {
+        device
+            .try_add_address(Address {
+                id: id.into(),
+                host: host.into(),
+                priority,
+            })
+            .expect("演示初始地址应合法且 ID 唯一");
+    }
+    for (id, config) in [
+        (
+            "nfs-data",
+            ConnectionConfig::Nfs(nfs_example("/volume1/data", NfsVersion::V3, None)),
+        ),
+        (
+            "smb-data",
+            ConnectionConfig::Smb(smb_example("data", SmbDialect::Auto)),
+        ),
+        (
+            "smb-backup",
+            ConnectionConfig::Smb(smb_example("backup", SmbDialect::Smb3)),
+        ),
+    ] {
+        device
+            .try_add_connection(ProtocolConnection {
+                id: id.into(),
+                config,
+            })
+            .expect("演示初始连接应合法且 ID 唯一");
+    }
+
+    println!("\n地址更新：每次操作后都显示保存结果");
+    for (id, host, priority) in [
+        ("address-1", "192.168.50.20", 1),
+        ("address-1", "", 99),
+        ("missing", "nas.example.com", 0),
+        ("missing", "", 0),
+    ] {
+        println!("尝试更新 {id:?}，Host={host:?}，优先级={priority}");
+        show_result(
+            "更新地址",
+            device.try_update_address(Address {
+                id: id.into(),
+                host: host.into(),
+                priority,
+            }),
+        );
+        show_device(&device);
+    }
+    println!("\n同优先级按保存顺序排列：");
+    for address in device.addresses_by_priority() {
+        println!("  {}", address.id);
+    }
+
+    println!("\n地址删除：");
+    for id in ["address-1", "address-1"] {
+        match device.remove_address(id) {
+            Ok(removed) => println!("删除成功，取回地址 {}：{}", removed.id, removed.host),
+            Err(error) => println!("删除 {id:?} 失败：{error}"),
+        }
+        show_device(&device);
+    }
+
+    println!("\n借用查找连接：");
+    let borrowed_connection = {
+        let query_id = String::from("nfs-data");
+        device.find_connection(&query_id)
+    };
+    if let Some(found) = borrowed_connection {
+        println!("查询字符串已释放，仍可读取设备中的连接：{}", found.id);
+    }
+    for id in ["smb-data", "missing"] {
+        match device.find_connection(id) {
+            Some(found) => println!("{id:?} → 找到 {}", found.id),
+            None => println!("{id:?} → 未找到"),
+        }
+    }
+
+    println!("\n连接更新：每次操作后都显示保存结果");
+    let mut invalid_smb = smb_example("data", SmbDialect::Auto);
+    invalid_smb.authentication.username = String::new();
+    for (id, config) in [
+        (
+            "nfs-data",
+            ConnectionConfig::Nfs(nfs_example("/volume1/archive", NfsVersion::V4, Some(2049))),
+        ),
+        (
+            "nfs-data",
+            ConnectionConfig::Nfs(nfs_example("relative/path", NfsVersion::V3, None)),
+        ),
+        (
+            "smb-data",
+            ConnectionConfig::Smb(smb_example("team data", SmbDialect::Smb3)),
+        ),
+        ("smb-data", ConnectionConfig::Smb(invalid_smb)),
+        (
+            "missing",
+            ConnectionConfig::Nfs(nfs_example("/data", NfsVersion::V3, None)),
+        ),
+        (
+            "missing",
+            ConnectionConfig::Nfs(nfs_example("relative/path", NfsVersion::V3, None)),
+        ),
+    ] {
+        println!("尝试更新连接 {id:?}：");
+        show_result(
+            "更新连接",
+            device.try_update_connection(ProtocolConnection {
+                id: id.into(),
+                config,
+            }),
+        );
+        show_connections(&device);
+    }
+
+    println!("\n连接删除：");
+    for id in ["nfs-data", "nfs-data"] {
+        match device.remove_connection(id) {
+            Ok(removed) => println!("删除成功，取回连接 {}", removed.id),
+            Err(error) => println!("删除 {id:?} 失败：{error}"),
+        }
+        show_connections(&device);
+    }
+
+    println!("\n空设备删除：");
+    let mut empty = Device::new(String::from("empty"), String::from("空设备"));
+    match empty.remove_address("missing") {
+        Ok(removed) => println!("意外取回地址 {}", removed.id),
+        Err(error) => println!("删除地址失败：{error}"),
+    }
+    match empty.remove_connection("missing") {
+        Ok(removed) => println!("意外取回连接 {}", removed.id),
+        Err(error) => println!("删除连接失败：{error}"),
+    }
+    println!(
+        "空设备剩余：{} 个地址，{} 条连接",
+        empty.addresses().len(),
+        empty.connections().len()
+    );
+
+    println!("\n最后保存的设备与连接：");
     show_device(&device);
     show_connections(&device);
 }

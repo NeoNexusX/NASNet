@@ -1,6 +1,8 @@
 **NASNet 技术方案：多地址优先级与协议独立建模**
 
-修订日期：2026-10-23。目标平台为 Windows、macOS、Linux。本文描述完整技术设计；当前 Rust 代码使用一个包、一个二进制 crate，通过 model、demo 模块组织代码。课程已合并为 12 课，完整安排写在 src/main.rs 和[课程大纲](Course-Syllabus.md)。第 1 课和第 2 课 A 的设备、地址及基础校验已完成，课程测试已按要求移除。当前第 2 课 B 的 NFS/SMB 校验与分派留作 TODO 10、11、12，使用保留编号 lesson04 的演示观察结果。协议访问、存储和系统挂载尚未实现，也未进行 NAS 实机验证。分阶段交付见[项目实现方案](Implementation-Plan.md)，学习方式见 [Rust 学习方案](Rust-Learning-Plan.md)。
+进度更新：2026-10-28。目标平台为 Windows、macOS、Linux。本文描述完整技术设计；当前 Rust 代码使用一个包、一个二进制 crate，通过 model、demo 模块组织代码。课程已合并为 12 课，完整安排写在 src/main.rs 和[课程大纲](Course-Syllabus.md)。第 1、2 课的设备、地址、独立 NFS/SMB 配置与校验已完成，课程测试已按要求移除。第 3 课 A 的设备字段封装、更新/删除和连接查找均已完成，编译、格式和 Clippy 检查通过，lesson05 输出已对照讲义核对；下一步在第 3 课 B 接入序列化与恢复时校验。协议访问、存储和系统挂载尚未实现，也未进行 NAS 实机验证。分阶段交付见[项目实现方案](Implementation-Plan.md)，学习方式见 [Rust 学习方案](Rust-Learning-Plan.md)。
+
+当前模型入口 `src/model.rs` 只声明模块并统一导出。设备及其列表管理位于 `model/device.rs`，地址和 Host 校验位于 `model/address.rs`，连接记录与校验分派位于 `model/connection.rs`，NFS/SMB 配置分别位于 `model/connection/nfs.rs` 和 `smb.rs`，统一错误类型位于 `model/error.rs`。协议配置模块仅维护数据和本地校验。
 
 协议后端选型已确定：NFS 使用 libnfs，SMB 使用 libsmb2，由 Rust 通过 FFI 调用；直接按该方案实现。
 
