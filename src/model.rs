@@ -3,12 +3,11 @@
 mod address;
 mod connection;
 mod device;
-mod error;
 
-pub use self::address::{validate_host, Address};
+pub use self::address::Address;
 pub use self::connection::{
     ConnectionConfig, NfsAuthSys, NfsConfig, NfsVersion, ProtocolConnection, SmbAuth, SmbConfig,
     SmbDialect,
 };
 pub use self::device::Device;
-pub use self::error::ConfigError;
+pub use crate::error::ConfigError;

@@ -1,10 +1,10 @@
 **NASNet 技术方案：多地址优先级与协议独立建模**
 
-进度更新：2026-10-28。目标平台为 Windows、macOS、Linux。本文描述完整技术设计；当前 Rust 代码使用一个包、一个二进制 crate，通过 model、demo 模块组织代码。课程已合并为 12 课，完整安排写在 src/main.rs 和[课程大纲](Course-Syllabus.md)。第 1、2 课的设备、地址、独立 NFS/SMB 配置与校验已完成，课程测试已按要求移除。第 3 课 A 的设备字段封装、更新/删除和连接查找均已完成，编译、格式和 Clippy 检查通过，lesson05 输出已对照讲义核对；下一步在第 3 课 B 接入序列化与恢复时校验。协议访问、存储和系统挂载尚未实现，也未进行 NAS 实机验证。分阶段交付见[项目实现方案](Implementation-Plan.md)，学习方式见 [Rust 学习方案](Rust-Learning-Plan.md)。
+进度更新：2026-10-29。目标平台为 Windows、macOS、Linux。本文描述完整技术设计；当前是 Rust 2024 edition 的单个 Cargo package，包含 library crate（lib.rs）和 binary crate（main.rs）。薄入口经 app 编排调用 model、config、store，错误集中到 error，日志集中在 app/logging。课程共 12 课，第 04 课合并完整代码、错误、日志与config.toml 与每台设备独立 TOML 持久化；其余课程按[大纲](Course-Syllabus.md)推进。
 
-当前模型入口 `src/model.rs` 只声明模块并统一导出。设备及其列表管理位于 `model/device.rs`，地址和 Host 校验位于 `model/address.rs`，连接记录与校验分派位于 `model/connection.rs`，NFS/SMB 配置分别位于 `model/connection/nfs.rs` 和 `smb.rs`，统一错误类型位于 `model/error.rs`。协议配置模块仅维护数据和本地校验。
+第 01～03 课模型、校验、封装和单设备序列化功能已通过，完整理解待补验。原 SQLite 作业[功能已验收](reviews/04-sqlite-acceptance.md)并归档，当前不再使用关系数据库。第 04 课有 13 项函数 TODO 待完成；真实协议访问和系统挂载尚未实现，也未进行 NAS 实机验证。阶段安排见[实现方案](Implementation-Plan.md)，学习方式见[学习方案](Rust-Learning-Plan.md)。
 
-协议后端选型已确定：NFS 使用 libnfs，SMB 使用 libsmb2，由 Rust 通过 FFI 调用；直接按该方案实现。
+模型模块仅维护数据和本地校验；config 保留 JSON 学习成果并提供主配置/单设备 TOML，store 负责软件主文件与引用设备文件的独立读写。StoreConnection 是文件访问入口，ProtocolConnection 是设备协议配置，两者分开命名。所有错误在 src/error.rs 按类型分层并使用英文 Display；应用边界通过 tracing 输出，tracing-subscriber 负责过滤和 stderr 格式化。模型和存储不自行打印日志。
 
 **一、功能范围。** 本方案仅包含已经提出的需求：
 
@@ -26,14 +26,17 @@
 | 前端 | Vue 3、TypeScript、Vite | 设备配置、地址排序、协议表单、文件和权限界面 |
 | 样式与组件 | Tailwind CSS、shadcn-vue | 界面布局、表单、列表、弹窗 |
 | 后台 | Rust、Tokio | 连接选择、协议访问、自动连接和挂载 |
-| 配置存储 | SQLite | 设备、地址、协议配置、挂载配置 |
-| 凭据存储 | 系统凭据存储；Rust 使用 keyring-core 与平台后端 | 保存 SMB 密码等凭据；SQLite 只保存引用 |
+| 配置存储 | config.toml + 每台设备一个 TOML | 主文件保存软件设置与设备路径，设备文件保存地址和协议配置 |
+| 凭据存储 | 各自设备 TOML 中明文保存 | SMB 账号密码原样保留；日志隐藏密码 |
+| 日志 | tracing、tracing-subscriber | 应用边界的事件、span、过滤和英文错误输出 |
 | 进程通信 | 本地 IPC | 桌面界面与独立用户后台通信 |
 | NFS 访问 | libnfs，经 Rust FFI 封装 | NFS 目录、文件读取及受支持的权限操作 |
 | SMB 访问 | libsmb2，经 Rust FFI 封装 | SMB2/3 目录、文件读取及受支持的安全信息操作 |
 | 系统挂载 | Windows、macOS、Linux 分别实现 | 调用平台挂载接口 |
 
 Tauri 官方推荐通过 Vite 接入 Vue：[前端配置](https://v2.tauri.app/start/frontend/)。协议后端固定使用 [libnfs](https://github.com/sahlberg/libnfs) 与 [libsmb2](https://github.com/sahlberg/libsmb2)，FFI 和构建方式见第十四节。具体协议版本、认证和权限接口以锁定的库版本与实际后端能力为准。
+
+主配置目标为 `AppConfig { schema_version, software, devices: Vec<DeviceReference> }`，位于 config.toml。设备引用包含 id 和相对于主文件目录的 TOML 路径，每个设备文件使用已有 ConfigDocument 包装 DeviceData。启动只读主文件；选择设备时再读取对应文件，应用层可以持有所选设备对象。单设备更新只替换一个设备文件，软件设置只更新主文件。新增先写设备后发布引用；解除引用保留设备文件。单文件替换不构成跨文件事务，主文件写失败可能留下未引用文件。主文件缺失可用默认值，已登记设备文件缺失必须报错。上述功能目前为第 04 课待完成的教学接口。
 
 **三、运行结构。**
 
@@ -163,7 +166,7 @@ interface SmbConfig {
   authentication: {
     username: string
     domain?: string
-    passwordRef: string
+    password: string
   }
   dialect: string       // 由后端协商能力校验
 }
@@ -175,7 +178,7 @@ interface SmbConfig {
 | basePath | 共享内部的起始目录，可选 |
 | port | SMB 服务端口 |
 | username / domain | 连接账号及所属域 |
-| passwordRef | 系统凭据存储中的密码引用 |
+| password | 本地明文保存的密码，原样保留，不 trim |
 | dialect | SMB 协议版本配置 |
 
 SMB 权限遵循 SMB 服务器的安全模型。需要表达权限时，采用后端返回的安全描述符、属主和 ACL 信息，不使用 NFS 的 UID/GID 与 mode 字段代替。Windows 风格的 DACL 由 ACE 条目描述访问允许与拒绝等信息：[DACL 与 ACE](https://learn.microsoft.com/en-us/windows/win32/secauthz/dacls-and-aces)。
@@ -247,7 +250,7 @@ connections:
       shareName: data
       authentication:
         username: user
-        passwordRef: nas-1-smb-password
+        password: demo-only-password
       dialect: auto
 ~~~
 
@@ -310,7 +313,7 @@ Windows 盘符映射属于用户登录会话，需在对应用户会话中处理
 
 界面仅包含设备及地址配置、协议连接表单、远程文件浏览、协议权限信息和本地挂载设置。NFS 与 SMB 使用不同的连接表单和权限面板。地址表仅显示 IP/域名、优先级、连接结果和当前使用情况。
 
-以下按逻辑职责列出后续模块；当前只创建 model、demo，其余随功能逐步增加，优先在同一 crate 内组织：
+以下按逻辑职责列出后续模块；当前已创建 model、config、store、error、app 及 app 内的 demo/logging，其余随功能逐步增加，优先在同一 library 内组织：
 
 ~~~text
 desktop-ui       Vue / Tailwind 界面
@@ -322,7 +325,10 @@ smb              SMB 连接、文件读取与安全信息操作
 nfs::ffi         libnfs 底层 FFI 绑定
 smb::ffi         libsmb2 底层 FFI 绑定
 mount            各系统挂载实现
-store            配置与凭据引用
+config           配置快照、版本与整份 JSON
+store            StoreConnection，config.toml 与设备文件 I/O
+error            分层错误、英文 Display、来源与转换
+app              应用编排与展示；logging 管理 tracing 订阅和边界输出
 ipc              界面与后台通信
 ~~~
 
@@ -346,7 +352,7 @@ nfs::ffi 与 smb::ffi 是协议模块内部维护的底层绑定；nfs 与 smb �
 
 **十四、依赖管理与跨平台构建。** NFS 后端固定为 libnfs，SMB 后端固定为 libsmb2。协议库选型已经完成，后续工作按这两个 C 库的 FFI 接入方案开展。
 
-前端使用 npm，提交 package-lock.json，构建使用 npm ci。Rust 当前采用单包结构，设备、路由、协议、存储等职责在 crate 内按模块组织，提交 Cargo.lock，发布构建使用 --locked。Rust 依赖在根 Cargo.toml 中声明，平台专属依赖使用 target 条件配置。出现独立构建或复用的实际需求时，再评估是否需要多个包或 workspace。后续工程化阶段使用 rust-toolchain.toml 固定 Rust 版本；Node 版本同样固定在开发和 CI 配置中。
+前端使用 npm，提交 package-lock.json，构建使用 npm ci。Rust 当前采用 Rust 2024 edition 的单包 lib/bin 结构，设备、路由、协议、存储等职责在 library 内按模块组织，binary 负责启动和应用编排，提交 Cargo.lock，发布构建使用 --locked。Rust 依赖在根 Cargo.toml 中声明，平台专属依赖使用 target 条件配置。出现独立构建或复用的实际需求时，再评估是否需要多个包或 workspace。后续工程化阶段使用 rust-toolchain.toml 固定 Rust 版本；Node 版本同样固定在开发和 CI 配置中。
 
 协议适配模块只向应用暴露本项目的接口，C 库类型不进入公共设备、权限和 IPC 模型。每种协议使用一个固定实现。
 

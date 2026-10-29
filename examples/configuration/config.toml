@@ -1,0 +1,14 @@
+# 软件设置与设备文件索引，不内嵌完整设备配置。
+schema_version = 1
+
+[software]
+language = "zh-CN"
+log_level = "info"
+
+[[devices]]
+id = "nas-home"
+path = "devices/home.toml"
+
+[[devices]]
+id = "nas-backup"
+path = "devices/backup.toml"

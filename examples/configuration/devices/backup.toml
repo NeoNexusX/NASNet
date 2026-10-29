@@ -1,0 +1,7 @@
+schema_version = 1
+
+[device]
+id = "nas-backup"
+name = "Backup NAS"
+addresses = []
+connections = []

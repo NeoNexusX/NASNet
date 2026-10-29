@@ -3,18 +3,24 @@
 mod nfs;
 mod smb;
 
-use super::error::ConfigError;
+use serde::{Deserialize, Serialize};
+
+use crate::error::ConfigError;
 
 pub use self::nfs::{NfsAuthSys, NfsConfig, NfsVersion};
 pub use self::smb::{SmbAuth, SmbConfig, SmbDialect};
 
 /// 每条连接恰好拥有一种协议的配置。
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "protocol", content = "settings", rename_all = "snake_case")]
 pub enum ConnectionConfig {
     Nfs(NfsConfig),
     Smb(SmbConfig),
 }
 
 /// 连接归所属设备管理，不重复保存设备的 Host 或地址优先级。
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProtocolConnection {
     pub id: String,
     pub config: ConnectionConfig,

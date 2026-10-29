@@ -2,7 +2,7 @@
 
 use super::address::Address;
 use super::connection::ProtocolConnection;
-use super::error::ConfigError;
+use crate::error::ConfigError;
 
 /// 一台设备拥有自己的名称和地址列表。
 pub struct Device {

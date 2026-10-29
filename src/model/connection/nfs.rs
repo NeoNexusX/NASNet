@@ -1,21 +1,27 @@
 //! NFS 配置、AUTH_SYS 身份和本地格式校验。
 
-use crate::model::error::ConfigError;
+use serde::{Deserialize, Serialize};
+
+use crate::error::ConfigError;
 
 /// 请求使用的 NFS 版本，实际支持情况由协议后端检查。
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum NfsVersion {
     V3,
     V4,
 }
 
 /// NFS AUTH_SYS 请求身份，与远程文件属主及服务器授权分开管理。
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NfsAuthSys {
     pub uid: u32,
     pub gid: u32,
     pub supplementary_groups: Vec<u32>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NfsConfig {
     pub export_path: String,
     pub version: NfsVersion,

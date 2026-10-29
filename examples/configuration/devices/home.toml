@@ -1,0 +1,32 @@
+# 虚构教学样例。密码原样保存，应用不能把配置正文写入日志。
+schema_version = 1
+
+[device]
+id = "nas-home"
+name = "Home NAS"
+
+[[device.addresses]]
+id = "lan"
+host = "192.168.50.10"
+priority = 1
+
+[[device.addresses]]
+id = "domain"
+host = "nas.example.com"
+priority = 2
+
+[[device.connections]]
+id = "smb-data"
+
+[device.connections.config]
+protocol = "smb"
+
+[device.connections.config.settings]
+share_name = "data"
+base_path = "photos/2026"
+port = 445
+dialect = "Smb3"
+
+[device.connections.config.settings.authentication]
+username = "nas-user"
+password = " demo-only-password "

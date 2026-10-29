@@ -18,3 +18,12 @@ rustc-ice-*.txt
 *~
 
 # 本项目是应用程序，Cargo.lock 随源码提交。
+
+# Local configuration includes plaintext credentials.
+/config.json
+/.config.json.tmp-*
+
+# TOML configuration and local device credentials.
+/config.toml
+/devices/
+/.config.toml.tmp-*

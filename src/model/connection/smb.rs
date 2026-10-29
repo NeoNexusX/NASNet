@@ -1,22 +1,28 @@
 //! SMB 配置、账号身份和本地格式校验。
 
-use crate::model::error::ConfigError;
+use serde::{Deserialize, Serialize};
+
+use crate::error::ConfigError;
 
 /// 自动协商，或限制在对应的 SMB 版本系列；具体方言由后端协商。
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SmbDialect {
     Auto,
     Smb2,
     Smb3,
 }
 
-/// 当前提供账号认证，密码保存在系统凭据存储中，此处只持有引用标识。
+/// 当前提供账号认证，密码按原值保存在配置中；展示和日志不输出密码。
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SmbAuth {
     pub username: String,
     pub domain: Option<String>,
-    pub password_ref: String,
+    pub password: String,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SmbConfig {
     pub share_name: String,
     /// None 或空字符串表示共享根目录；其他值按共享内相对路径解释。
@@ -44,8 +50,8 @@ impl SmbConfig {
         if self.authentication.username.trim().is_empty() {
             return Err(ConfigError::EmptySmbUsername);
         }
-        if self.authentication.password_ref.trim().is_empty() {
-            return Err(ConfigError::EmptyPasswordRef);
+        if self.authentication.password.is_empty() {
+            return Err(ConfigError::EmptySmbPassword);
         }
         if self.port == Some(0) {
             return Err(ConfigError::InvalidPort);
