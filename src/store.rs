@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
-    config::{AppConfig, DeviceReference},
+    config::{AppConfig, DeviceReference, decode_app_config},
     error::StoreError,
     model::Device,
 };
@@ -30,6 +30,13 @@ impl StoreConnection {
         }
     }
 
+    /// 启动入口已选定明确的主文件；不隐式读取，也不改用进程工作目录。
+    pub fn from_config_path(config_path: impl Into<PathBuf>) -> Self {
+        Self {
+            config_path: config_path.into(),
+        }
+    }
+
     pub fn config_path(&self) -> &Path {
         &self.config_path
     }
@@ -43,10 +50,19 @@ impl StoreConnection {
     }
 
     pub fn load_app(&self) -> Result<AppConfig, StoreError> {
-        // TODO 4.8：只读 config.toml；仅主文件 NotFound 返回默认 AppConfig。
-        // 不提前加载全部设备；主文件存在但损坏必须返回错误。
-        let _ = &self.config_path;
-        todo!("TODO 4.8: load software settings and device references")
+        match self.load_app_required() {
+            Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+                Ok(AppConfig::default())
+            }
+            result => result,
+        }
+    }
+
+    /// 显式指定的配置必须存在；保留路径与来源，不把损坏配置视为默认值。
+    pub fn load_app_required(&self) -> Result<AppConfig, StoreError> {
+        let text = std::fs::read_to_string(&self.config_path)
+            .map_err(|error| StoreError::io("read configuration", &self.config_path, error))?;
+        decode_app_config(&text).map_err(|error| StoreError::config(&self.config_path, error))
     }
 
     pub fn save_app(&mut self, config: &AppConfig) -> Result<(), StoreError> {

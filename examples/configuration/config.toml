@@ -3,7 +3,11 @@ schema_version = 1
 
 [software]
 language = "zh-CN"
-log_level = "info"
+
+[logging]
+console_level = "info"
+file_level = "trace"
+file_path = "logs/nasnet.log"
 
 [[devices]]
 id = "nas-home"

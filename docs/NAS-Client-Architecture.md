@@ -1,12 +1,8 @@
-**NASNet 技术方案：多地址优先级与协议独立建模**
+# NASNet 技术设计
 
-进度更新：2026-10-29。目标平台为 Windows、macOS、Linux。本文描述完整技术设计；当前是 Rust 2024 edition 的单个 Cargo package，包含 library crate（lib.rs）和 binary crate（main.rs）。薄入口经 app 编排调用 model、config、store，错误集中到 error，日志集中在 app/logging。课程共 12 课，第 04 课合并完整代码、错误、日志与config.toml 与每台设备独立 TOML 持久化；其余课程按[大纲](Course-Syllabus.md)推进。
+本文描述目标产品的技术边界。当前实现模型、主配置读取、启动和日志；设备持久化及真实协议仍未完成。具体状态见[实现计划](Implementation-Plan.md)，代码位置见[源码地图](Code-Reading-Guide.md)。
 
-第 01～03 课模型、校验、封装和单设备序列化功能已通过，完整理解待补验。原 SQLite 作业[功能已验收](reviews/04-sqlite-acceptance.md)并归档，当前不再使用关系数据库。第 04 课有 13 项函数 TODO 待完成；真实协议访问和系统挂载尚未实现，也未进行 NAS 实机验证。阶段安排见[实现方案](Implementation-Plan.md)，学习方式见[学习方案](Rust-Learning-Plan.md)。
-
-模型模块仅维护数据和本地校验；config 保留 JSON 学习成果并提供主配置/单设备 TOML，store 负责软件主文件与引用设备文件的独立读写。StoreConnection 是文件访问入口，ProtocolConnection 是设备协议配置，两者分开命名。所有错误在 src/error.rs 按类型分层并使用英文 Display；应用边界通过 tracing 输出，tracing-subscriber 负责过滤和 stderr 格式化。模型和存储不自行打印日志。
-
-**一、功能范围。** 本方案仅包含已经提出的需求：
+## 一、功能范围
 
 - 本机安装的跨平台图形界面，使用 Vue 与 Tailwind CSS 构建。
 - 管理 NAS 设备，每台设备配置多个 IP 地址或域名，调整连接优先级。
@@ -18,7 +14,7 @@
 
 产品设置只包含设备、地址、协议连接、权限和挂载。地址记录不包含网络类型、地址来源、使用环境、网络依赖或出口网卡。程序只负责连接用户提供的地址。
 
-**二、技术栈。**
+## 二、技术栈
 
 | 部分 | 选型 | 职责 |
 |---|---|---|
@@ -26,19 +22,19 @@
 | 前端 | Vue 3、TypeScript、Vite | 设备配置、地址排序、协议表单、文件和权限界面 |
 | 样式与组件 | Tailwind CSS、shadcn-vue | 界面布局、表单、列表、弹窗 |
 | 后台 | Rust、Tokio | 连接选择、协议访问、自动连接和挂载 |
-| 配置存储 | config.toml + 每台设备一个 TOML | 主文件保存软件设置与设备路径，设备文件保存地址和协议配置 |
+| 配置存储 | config.toml + 每台设备一个 TOML | 主文件保存软件设置、日志设置与设备路径，设备文件保存地址和协议配置 |
 | 凭据存储 | 各自设备 TOML 中明文保存 | SMB 账号密码原样保留；日志隐藏密码 |
-| 日志 | tracing、tracing-subscriber | 应用边界的事件、span、过滤和英文错误输出 |
+| 日志 | tracing、tracing-subscriber、Mutex<File> | 单个 registry、终端/文件独立过滤、同步追加写入和英文错误摘要 |
 | 进程通信 | 本地 IPC | 桌面界面与独立用户后台通信 |
 | NFS 访问 | libnfs，经 Rust FFI 封装 | NFS 目录、文件读取及受支持的权限操作 |
 | SMB 访问 | libsmb2，经 Rust FFI 封装 | SMB2/3 目录、文件读取及受支持的安全信息操作 |
 | 系统挂载 | Windows、macOS、Linux 分别实现 | 调用平台挂载接口 |
 
-Tauri 官方推荐通过 Vite 接入 Vue：[前端配置](https://v2.tauri.app/start/frontend/)。协议后端固定使用 [libnfs](https://github.com/sahlberg/libnfs) 与 [libsmb2](https://github.com/sahlberg/libsmb2)，FFI 和构建方式见第十四节。具体协议版本、认证和权限接口以锁定的库版本与实际后端能力为准。
+Tauri 官方推荐通过 Vite 接入 Vue：[前端配置](https://v2.tauri.app/start/frontend/)。协议后端固定使用 [libnfs](https://github.com/sahlberg/libnfs) 与 [libsmb2](https://github.com/sahlberg/libsmb2)，FFI 和构建方式见第十三节。具体协议版本、认证和权限接口以锁定的库版本与实际后端能力为准。
 
-主配置目标为 `AppConfig { schema_version, software, devices: Vec<DeviceReference> }`，位于 config.toml。设备引用包含 id 和相对于主文件目录的 TOML 路径，每个设备文件使用已有 ConfigDocument 包装 DeviceData。启动只读主文件；选择设备时再读取对应文件，应用层可以持有所选设备对象。单设备更新只替换一个设备文件，软件设置只更新主文件。新增先写设备后发布引用；解除引用保留设备文件。单文件替换不构成跨文件事务，主文件写失败可能留下未引用文件。主文件缺失可用默认值，已登记设备文件缺失必须报错。上述功能目前为第 04 课待完成的教学接口。
+磁盘主配置保存软件/日志设置与有序设备引用，每台设备独立使用 TOML 文件。启动先读取主文件，再初始化日志；选择设备时才读对应文件。默认路径、命令和日志选项见 [README](../README.md)，保存与失败边界见[第 04 课 B](lessons/04-errors-logging-and-toml-storage.md#part-b)。
 
-**三、运行结构。**
+## 三、运行结构
 
 ~~~mermaid
 flowchart TD
@@ -61,7 +57,9 @@ flowchart TD
 
 开机自动连接的默认实现是用户登录后启动后台，按保存的配置连接并挂载。只有需要无人登录时也挂载的要求明确提出后，才设计系统级运行方式。
 
-**四、公共模型只保存公共信息。**
+## 四、公共模型只保存公共信息
+
+以下 TypeScript 结构描述规划中的 UI/IPC 数据；当前磁盘结构以 Rust 配置类型和第九节的 TOML 文件为准。
 
 ~~~typescript
 interface Address {
@@ -98,7 +96,9 @@ type ProtocolConnection =
 
 优先级相同时，按保存顺序稳定排序。界面拖拽改序后可以重新生成优先级。地址是域名时，由系统解析；多个 DNS 结果仍属于该地址记录，不被自动保存成新的用户地址条目。
 
-**五、NFS 连接模型。** NFS 不能统一套用用户名与密码模型。以下配置以 AUTH_SYS 身份方式为例：
+## 五、NFS 连接模型
+
+NFS 不能统一套用用户名与密码模型。以下配置以 AUTH_SYS 身份方式为例：
 
 ~~~typescript
 interface NfsConfig {
@@ -128,7 +128,9 @@ AUTH_SYS 按 UID/GID 等身份信息进行访问检查，libnfs 也提供设置 
 
 NFS 版本与安全方式分别建模，不能根据 NFSv3/v4 直接推断认证模式或 ACL 支持。
 
-**六、NFS 权限模型。** 至少区分访问身份、远程文件权限和服务器导出规则三件事。
+## 六、NFS 权限模型
+
+至少区分访问身份、远程文件权限和服务器导出规则三件事。
 
 1. 访问身份：连接配置里的 UID、GID 和附加组。
 2. 文件权限：服务器返回的文件属主、属组与权限位；服务器和后端支持时还可以返回 ACL。
@@ -156,7 +158,7 @@ interface NfsFilePermissions {
 
 上述服务器导出规则由服务器管理员维护：[exports 手册](https://www.man7.org/linux/man-pages/man5/exports.5.html)。客户端不假定能完整读取或更改这些规则。
 
-**七、SMB 使用独立模型。**
+## 七、SMB 使用独立模型
 
 ~~~typescript
 interface SmbConfig {
@@ -185,7 +187,9 @@ SMB 权限遵循 SMB 服务器的安全模型。需要表达权限时，采用�
 
 SMB 的共享级授权与文件/目录级授权不能只凭一个客户端 readOnly 字段推断。权限读取或修改是否可用，由协议后端和服务器共同决定；客户端不能假定能通过文件访问接口管理服务器共享规则。
 
-**八、连接路由规则。** 连接路由层只接收某个协议连接及其设备地址列表，按优先级尝试。
+## 八、连接路由规则
+
+连接路由层只接收某个协议连接及其设备地址列表，按优先级尝试。
 
 ~~~text
 选择协议连接
@@ -214,49 +218,13 @@ SMB 的共享级授权与文件/目录级授权不能只凭一个客户端 readO
 
 运行时结果包含 connectionId、addressId、resolvedAddress、protocol、status、error。连接状态按协议连接保存；同设备的不同共享可能使用不同地址。
 
-**九、协议配置示例。** 以下是应用配置示例，地址均为普通 IP 或域名，没有额外地址分类。
+## 九、磁盘配置示例
 
-~~~yaml
-device:
-  id: nas-1
-  name: 我的 NAS
+配置格式以[主文件](../examples/configuration/config.toml)、[设备文件](../examples/configuration/devices/home.toml)和[空设备](../examples/configuration/devices/backup.toml)为准。设备文档的 schema_version、device、地址数组与协议标签对应 Rust 配置类型；软件和日志设置只在主文件中。
 
-addresses:
-  - id: address-1
-    host: 192.168.50.10
-    priority: 1
-  - id: address-2
-    host: 10.20.30.10
-    priority: 2
-  - id: address-3
-    host: nas.example.com
-    priority: 3
+## 十、远程浏览与系统挂载
 
-connections:
-  - id: nfs-data
-    protocol: nfs
-    config:
-      exportPath: /volume1/data
-      version: "3"
-      authentication:
-        type: sys
-        uid: 1000
-        gid: 1000
-        supplementaryGroups: []
-
-  - id: smb-data
-    protocol: smb
-    config:
-      shareName: data
-      authentication:
-        username: user
-        password: demo-only-password
-      dialect: auto
-~~~
-
-这两个协议连接复用地址顺序，但分别使用各自的路径、认证和权限模型。密码和远程文件的实时权限数据不混入设备地址配置。
-
-**十、远程浏览与系统挂载。** 两项能力使用同一个协议连接配置和地址选择过程，但各自维护会话。
+两项能力使用同一个协议连接配置和地址选择过程，但各自维护会话。
 
 远程浏览由 Rust 协议适配器通过 FFI 调用 libnfs 或 libsmb2 提供：
 
@@ -294,7 +262,7 @@ Windows 内置 NFS 客户端按微软公开矩阵支持 v2/v3，不能假定与�
 
 Windows 盘符映射属于用户登录会话，需在对应用户会话中处理：[微软说明](https://learn.microsoft.com/en-us/windows/win32/services/services-and-redirected-drives)。
 
-**十一、地址切换时的行为。**
+## 十一、地址切换时的行为
 
 | 使用场景 | 处理 |
 |---|---|
@@ -309,11 +277,11 @@ Windows 盘符映射属于用户登录会话，需在对应用户会话中处理
 
 自动挂载保存在配置中。后台启动后检查实际挂载状态，避免重复挂载或占用已经被其他连接使用的盘符/目录。
 
-**十二、界面与模块边界。**
+## 十二、界面与模块边界
 
 界面仅包含设备及地址配置、协议连接表单、远程文件浏览、协议权限信息和本地挂载设置。NFS 与 SMB 使用不同的连接表单和权限面板。地址表仅显示 IP/域名、优先级、连接结果和当前使用情况。
 
-以下按逻辑职责列出后续模块；当前已创建 model、config、store、error、app 及 app 内的 demo/logging，其余随功能逐步增加，优先在同一 library 内组织：
+以下按逻辑职责列出后续模块；当前包含 model、config、store、error、app 及 app 内的 startup/logging，其余随功能逐步增加，优先在同一 library 内组织：
 
 ~~~text
 desktop-ui       Vue / Tailwind 界面
@@ -325,10 +293,12 @@ smb              SMB 连接、文件读取与安全信息操作
 nfs::ffi         libnfs 底层 FFI 绑定
 smb::ffi         libsmb2 底层 FFI 绑定
 mount            各系统挂载实现
-config           配置快照、版本与整份 JSON
+config           配置快照、版本与主配置/单设备 TOML 编解码
 store            StoreConnection，config.toml 与设备文件 I/O
 error            分层错误、英文 Display、来源与转换
-app              应用编排与展示；logging 管理 tracing 订阅和边界输出
+app              项目流程编排与展示
+app::startup     参数、主配置定位与读取校验、启动上下文
+app::logging     双输出 tracing 订阅、独立过滤、同步文件写入与错误报告
 ipc              界面与后台通信
 ~~~
 
@@ -336,21 +306,9 @@ ipc              界面与后台通信
 
 nfs::ffi 与 smb::ffi 是协议模块内部维护的底层绑定；nfs 与 smb 在其上封装安全的 Rust 接口。职责划分优先通过模块表达。桌面壳和独立用户后台需要不同进程入口时，再确定对应的构建组织，不预先要求每个模块成为独立包。
 
-**十三、实现行为要求。**
+## 十三、依赖管理与跨平台构建
 
-实现遵循这些已提出需求对应的行为：
-
-- 一台设备的多个 IP/域名能按保存的优先级依次连接。
-- 高优先级地址连接失败后尝试下一地址。
-- 修改地址优先级后，新连接遵循新顺序。
-- NFS 与 SMB 连接使用独立协议配置，不混用身份与权限字段。
-- NFS UID/GID 与远程文件属主、权限位被明确区分。
-- NFS 服务器拒绝修改时，界面返回真实权限错误。
-- 应用内浏览和系统挂载分别报告能力及实际状态。
-- 开机后自动连接与挂载，后台重启不重复挂载。
-- 挂载被其他应用占用时不自动强制卸载。
-
-**十四、依赖管理与跨平台构建。** NFS 后端固定为 libnfs，SMB 后端固定为 libsmb2。协议库选型已经完成，后续工作按这两个 C 库的 FFI 接入方案开展。
+NFS 后端固定为 libnfs，SMB 后端固定为 libsmb2。协议库选型已经完成，后续工作按这两个 C 库的 FFI 接入方案开展。
 
 前端使用 npm，提交 package-lock.json，构建使用 npm ci。Rust 当前采用 Rust 2024 edition 的单包 lib/bin 结构，设备、路由、协议、存储等职责在 library 内按模块组织，binary 负责启动和应用编排，提交 Cargo.lock，发布构建使用 --locked。Rust 依赖在根 Cargo.toml 中声明，平台专属依赖使用 target 条件配置。出现独立构建或复用的实际需求时，再评估是否需要多个包或 workspace。后续工程化阶段使用 rust-toolchain.toml 固定 Rust 版本；Node 版本同样固定在开发和 CI 配置中。
 
@@ -389,3 +347,7 @@ Cargo
 | Linux | Rust 对应架构 target、GCC 或 Clang、Tauri 所需 WebKitGTK 等开发依赖、CMake |
 
 Tauri 系统依赖以[官方环境要求](https://v2.tauri.app/start/prerequisites/)为准。Rust 支持多目标不代表仅执行 rustup target add 就能从一台机器构建完整的三平台桌面应用。初期采用各平台本机构建，避免额外维护跨系统交叉编译工具链。最终用户安装已打包程序，无需安装 Rust、Node 或 C/C++ 编译器；系统挂载仍需对应操作系统提供所需客户端能力。
+
+## 验证范围
+
+本地回归命令见 [README](../README.md)。自动测试不能替代真实 NAS、服务器授权、系统挂载与三平台打包验证；这些验证在对应功能接入时执行。

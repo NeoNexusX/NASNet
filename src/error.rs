@@ -7,6 +7,7 @@ use std::{fmt, io, path::PathBuf};
 pub enum ConfigError {
     DuplicateDeviceId(String),
     InvalidSoftwareSettings,
+    InvalidLoggingSettings,
     InvalidDeviceReference,
     DuplicateDevicePath,
     DeviceIdMismatch,
@@ -32,6 +33,7 @@ impl fmt::Display for ConfigError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidSoftwareSettings => write!(formatter, "Invalid software settings"),
+            Self::InvalidLoggingSettings => write!(formatter, "Invalid logging settings"),
             Self::InvalidDeviceReference => write!(formatter, "Invalid device reference"),
             Self::DuplicateDevicePath => write!(formatter, "Duplicate device file path"),
             Self::DeviceIdMismatch => write!(formatter, "Device ID does not match its reference"),
@@ -80,10 +82,9 @@ impl fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
-/// JSON 复习与 TOML 配置分开表达；Display 不包含原始配置正文。
+/// TOML 编解码与配置校验错误；Display 不包含原始配置正文。
 #[derive(Debug)]
 pub enum ConfigIoError {
-    Json(serde_json::Error),
     TomlDecode(toml::de::Error),
     TomlEncode(toml::ser::Error),
     Validation(ConfigError),
@@ -95,12 +96,6 @@ impl fmt::Display for ConfigIoError {
         match self {
             Self::TomlDecode(_) => write!(formatter, "Invalid TOML configuration"),
             Self::TomlEncode(_) => write!(formatter, "Failed to encode TOML configuration"),
-            Self::Json(error) => write!(
-                formatter,
-                "Invalid JSON configuration at line {}, column {}",
-                error.line(),
-                error.column()
-            ),
             Self::Validation(error) => {
                 write!(formatter, "Configuration validation failed: {error}")
             }
@@ -114,18 +109,11 @@ impl fmt::Display for ConfigIoError {
 impl std::error::Error for ConfigIoError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Json(error) => Some(error),
             Self::TomlDecode(error) => Some(error),
             Self::TomlEncode(error) => Some(error),
             Self::Validation(error) => Some(error),
             Self::UnsupportedVersion(_) => None,
         }
-    }
-}
-
-impl From<serde_json::Error> for ConfigIoError {
-    fn from(error: serde_json::Error) -> Self {
-        Self::Json(error)
     }
 }
 
@@ -213,7 +201,6 @@ pub enum AppError {
     Config(ConfigIoError),
     Store(StoreError),
     Io(io::Error),
-    UnknownCourse(String),
     InvalidArguments(&'static str),
     Logging(String),
 }
@@ -224,7 +211,6 @@ impl AppError {
             Self::Config(_) => "config",
             Self::Store(_) => "store",
             Self::Io(_) => "io",
-            Self::UnknownCourse(_) => "unknown_course",
             Self::InvalidArguments(_) => "invalid_arguments",
             Self::Logging(_) => "logging",
         }
@@ -232,7 +218,7 @@ impl AppError {
 
     pub fn exit_code(&self) -> i32 {
         match self {
-            Self::UnknownCourse(_) | Self::InvalidArguments(_) => 2,
+            Self::InvalidArguments(_) => 2,
             _ => 1,
         }
     }
@@ -244,7 +230,6 @@ impl fmt::Display for AppError {
             Self::Config(error) => write!(formatter, "Configuration operation failed: {error}"),
             Self::Store(error) => write!(formatter, "Configuration storage failed: {error}"),
             Self::Io(error) => write!(formatter, "I/O operation failed: {error}"),
-            Self::UnknownCourse(course) => write!(formatter, "Unknown course: {course}"),
             Self::InvalidArguments(message) => write!(formatter, "Invalid arguments: {message}"),
             Self::Logging(message) => write!(formatter, "Logging initialization failed: {message}"),
         }
@@ -257,7 +242,7 @@ impl std::error::Error for AppError {
             Self::Config(error) => Some(error),
             Self::Store(error) => Some(error),
             Self::Io(error) => Some(error),
-            Self::UnknownCourse(_) | Self::InvalidArguments(_) | Self::Logging(_) => None,
+            Self::InvalidArguments(_) | Self::Logging(_) => None,
         }
     }
 }
