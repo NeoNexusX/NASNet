@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::ConfigError;
+use crate::model::ModelError;
 
 /// 请求使用的 NFS 版本，实际支持情况由协议后端检查。
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -31,12 +31,12 @@ pub struct NfsConfig {
 
 impl NfsConfig {
     /// 检查本地配置格式，不探测服务器导出或后端能力。
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    pub fn validate(&self) -> Result<(), ModelError> {
         if self.export_path.contains('\0') || !self.export_path.starts_with('/') {
-            return Err(ConfigError::InvalidNfsExportPath);
+            return Err(ModelError::InvalidNfsExportPath);
         }
         if self.port == Some(0) {
-            return Err(ConfigError::InvalidPort);
+            return Err(ModelError::InvalidPort);
         }
         Ok(())
     }

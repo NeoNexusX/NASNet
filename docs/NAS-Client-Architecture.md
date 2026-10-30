@@ -1,6 +1,6 @@
 # NASNet 技术设计
 
-本文描述目标产品的技术边界。当前实现模型、主配置读取、启动和日志；设备持久化及真实协议仍未完成。具体状态见[实现计划](Implementation-Plan.md)，代码位置见[源码地图](Code-Reading-Guide.md)。
+本文描述目标产品的技术边界。实现进度见[课程目录](Course-Syllabus.md)，代码位置见[源码地图](Code-Reading-Guide.md)。
 
 ## 一、功能范围
 
@@ -31,8 +31,6 @@
 | 系统挂载 | Windows、macOS、Linux 分别实现 | 调用平台挂载接口 |
 
 Tauri 官方推荐通过 Vite 接入 Vue：[前端配置](https://v2.tauri.app/start/frontend/)。协议后端固定使用 [libnfs](https://github.com/sahlberg/libnfs) 与 [libsmb2](https://github.com/sahlberg/libsmb2)，FFI 和构建方式见第十三节。具体协议版本、认证和权限接口以锁定的库版本与实际后端能力为准。
-
-磁盘主配置保存软件/日志设置与有序设备引用，每台设备独立使用 TOML 文件。启动先读取主文件，再初始化日志；选择设备时才读对应文件。默认路径、命令和日志选项见 [README](../README.md)，保存与失败边界见[第 04 课 B](lessons/04-errors-logging-and-toml-storage.md#part-b)。
 
 ## 三、运行结构
 
@@ -218,9 +216,9 @@ SMB 的共享级授权与文件/目录级授权不能只凭一个客户端 readO
 
 运行时结果包含 connectionId、addressId、resolvedAddress、protocol、status、error。连接状态按协议连接保存；同设备的不同共享可能使用不同地址。
 
-## 九、磁盘配置示例
+## 九、磁盘配置
 
-配置格式以[主文件](../examples/configuration/config.toml)、[设备文件](../examples/configuration/devices/home.toml)和[空设备](../examples/configuration/devices/backup.toml)为准。设备文档的 schema_version、device、地址数组与协议标签对应 Rust 配置类型；软件和日志设置只在主文件中。
+主文件保存软件设置、日志设置和有序的设备引用，每台设备单独一个 TOML 文件，格式以[主文件](../examples/configuration/config.toml)、[设备文件](../examples/configuration/devices/home.toml)和[空设备](../examples/configuration/devices/backup.toml)为准。设备文档的 schema_version、device、地址数组与协议标签对应 Rust 配置类型；软件和日志设置只在主文件中。启动时先读主文件再初始化日志，选择设备时才读对应的设备文件；读写、校验与失败边界见[第 04 课](lessons/04-errors-logging-and-toml-storage.md)。
 
 ## 十、远程浏览与系统挂载
 
@@ -281,7 +279,7 @@ Windows 盘符映射属于用户登录会话，需在对应用户会话中处理
 
 界面仅包含设备及地址配置、协议连接表单、远程文件浏览、协议权限信息和本地挂载设置。NFS 与 SMB 使用不同的连接表单和权限面板。地址表仅显示 IP/域名、优先级、连接结果和当前使用情况。
 
-以下按逻辑职责列出后续模块；当前包含 model、config、store、error、app 及 app 内的 startup/logging，其余随功能逐步增加，优先在同一 library 内组织：
+以下按逻辑职责列出模块，随功能逐步增加；已有模块的文件职责见[源码地图](Code-Reading-Guide.md)：
 
 ~~~text
 desktop-ui       Vue / Tailwind 界面
@@ -295,20 +293,13 @@ smb::ffi         libsmb2 底层 FFI 绑定
 mount            各系统挂载实现
 config           配置快照、版本与主配置/单设备 TOML 编解码
 store            StoreConnection，config.toml 与设备文件 I/O
-error            分层错误、英文 Display、来源与转换
-app              项目流程编排与展示
-app::startup     参数、主配置定位与读取校验、启动上下文
-app::logging     双输出 tracing 订阅、独立过滤、同步文件写入与错误报告
+app              启动编排、日志、终端错误报告和退出码
 ipc              界面与后台通信
 ~~~
 
 协议适配器负责各自的连接参数、认证、错误与权限语义。公共层只统一设备、地址顺序、连接状态和必要的文件读取入口。
 
-nfs::ffi 与 smb::ffi 是协议模块内部维护的底层绑定；nfs 与 smb 在其上封装安全的 Rust 接口。职责划分优先通过模块表达。桌面壳和独立用户后台需要不同进程入口时，再确定对应的构建组织，不预先要求每个模块成为独立包。
-
 ## 十三、依赖管理与跨平台构建
-
-NFS 后端固定为 libnfs，SMB 后端固定为 libsmb2。协议库选型已经完成，后续工作按这两个 C 库的 FFI 接入方案开展。
 
 前端使用 npm，提交 package-lock.json，构建使用 npm ci。Rust 当前采用 Rust 2024 edition 的单包 lib/bin 结构，设备、路由、协议、存储等职责在 library 内按模块组织，binary 负责启动和应用编排，提交 Cargo.lock，发布构建使用 --locked。Rust 依赖在根 Cargo.toml 中声明，平台专属依赖使用 target 条件配置。出现独立构建或复用的实际需求时，再评估是否需要多个包或 workspace。后续工程化阶段使用 rust-toolchain.toml 固定 Rust 版本；Node 版本同样固定在开发和 CI 配置中。
 
@@ -322,8 +313,6 @@ NFS 后端固定为 libnfs，SMB 后端固定为 libsmb2。协议库选型已经
 上述绑定由项目维护，并与固定的 C 库版本配套。底层绑定封装原生构建、链接配置和 C 函数声明；高层适配器封装连接上下文、目录与文件句柄、错误转换，以及异步回调与 Rust 任务之间的衔接。
 
 原始指针、回调数据、字符串与缓冲区的生命周期限制在 FFI 封装内部，资源通过 Rust 所有权与 Drop 统一释放。每个 C 连接上下文由所属任务或工作线程管理，避免并发误用；UI 和公共业务模块只使用封装后的 Rust 类型。
-
-NFS 适配器通过 libnfs 处理导出连接、AUTH_SYS 身份、目录与文件读取，以及库支持且服务器授权的权限操作。SMB 适配器通过 libsmb2 处理 SMB2/3 协商、账号认证、目录与文件读取，以及库支持且服务器授权的安全信息操作。协议与权限模型沿用前文定义。
 
 接入原生库时，由包根目录的 build.rs 调用 cmake 构建依赖，再由系统 CMake 调用目标平台 C 编译器。Cargo 能编排构建，但不会代替编译器、链接器或系统 SDK：[Cargo 构建脚本](https://doc.rust-lang.org/cargo/reference/build-scripts.html)、[cmake crate](https://docs.rs/cmake/latest/cmake/)。
 

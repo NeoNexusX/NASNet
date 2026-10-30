@@ -1,4 +1,4 @@
-//! 先解析参数和读取主配置，再由 main 安装日志；此阶段不发 tracing 事件。
+//! 启动准备：解析命令行参数，定位并读取主配置，确定日志路径。只读文件，不安装日志，也不发事件。
 
 use std::{
     ffi::OsString,
@@ -7,96 +7,97 @@ use std::{
 
 use nasnet::{
     config::AppConfig,
-    error::{AppError, StoreError},
-    store::StoreConnection,
+    store::{StoreConnection, StoreError},
 };
 
+use super::AppError;
+
+/// 后续步骤需要的一切：已校验的主配置、存储入口、日志文件路径和选中的设备。
 pub struct Startup {
-    pub selected_id: Option<String>,
     pub config: AppConfig,
-    pub config_directory: PathBuf,
     pub store: StoreConnection,
+    pub log_path: PathBuf,
+    pub selected_id: Option<String>,
 }
 
-pub fn prepare(arguments: Vec<OsString>) -> Result<Startup, AppError> {
-    let mut arguments = arguments.into_iter();
-    let mut config_argument = None;
-    let mut selected_id = None;
-    while let Some(argument) = arguments.next() {
-        if argument == "--config" && config_argument.is_none() {
-            let value = arguments.next().ok_or(AppError::InvalidArguments(
-                "--config requires a configuration file path",
-            ))?;
-            if value.is_empty() || value.to_str().is_some_and(|value| value.starts_with("--")) {
-                return Err(AppError::InvalidArguments(
-                    "--config requires a configuration file path",
-                ));
-            }
-            config_argument = Some(PathBuf::from(value));
-        } else if argument == "--device" && selected_id.is_none() {
-            let value = arguments
-                .next()
-                .ok_or(AppError::InvalidArguments("--device requires a device ID"))?;
-            let id = value.to_str().ok_or(AppError::InvalidArguments(
-                "device ID must contain valid Unicode",
-            ))?;
-            if id.trim().is_empty() || id.starts_with("--") {
-                return Err(AppError::InvalidArguments("--device requires a device ID"));
-            }
-            selected_id = Some(id.to_owned());
-        } else {
-            return Err(AppError::InvalidArguments(
-                "use [--config <file>] [--device <id>]; options must not be repeated",
-            ));
-        }
-    }
-
+/// 先解析参数，参数有误时不访问任何文件；再读取主配置并检查日志路径。
+pub fn prepare(arguments: impl IntoIterator<Item = OsString>) -> Result<Startup, AppError> {
+    let (config_argument, selected_id) = parse_arguments(arguments)?;
     let explicit_config = config_argument.is_some();
-    let config_path = if let Some(path) = config_argument {
-        // 命令行相对路径只在这里相对 cwd 转为绝对路径；内部路径统一基于配置目录。
-        std::path::absolute(path)?
-    } else {
-        let executable = std::env::current_exe()?;
-        executable
+    let config_path = match config_argument {
+        // 命令行的相对路径相对启动时的 cwd；之后的内部路径都以主配置所在目录为基准。
+        Some(path) => std::path::absolute(path)?,
+        None => std::env::current_exe()?
             .parent()
             .ok_or(StoreError::InvalidConfigPath)?
-            .join("config.toml")
+            .join("config.toml"),
     };
-    if config_path.file_name().is_none() {
-        return Err(StoreError::InvalidConfigPath.into());
-    }
-    let config_directory = config_path
-        .parent()
-        .ok_or(StoreError::InvalidConfigPath)?
-        .to_path_buf();
+    let config_directory = match (config_path.parent(), config_path.file_name()) {
+        (Some(directory), Some(_)) => directory.to_path_buf(),
+        _ => return Err(StoreError::InvalidConfigPath.into()),
+    };
     let store = StoreConnection::from_config_path(config_path);
     let config = if explicit_config {
         store.load_app_required()?
     } else {
         store.load_app()?
     };
-    reject_log_path_conflicts(&config, store.config_path(), &config_directory)?;
+    // 相对路径接在配置目录后面；绝对路径 join 后会整体替换配置目录。
+    let log_path = config_directory.join(&config.logging.file_path);
+    reject_log_path_conflicts(&log_path, &config, store.config_path(), &config_directory)?;
 
     Ok(Startup {
-        selected_id,
         config,
-        config_directory,
         store,
+        log_path,
+        selected_id,
+    })
+}
+
+/// 接受 [--config <文件>] [--device <ID>]，顺序任意，每个选项最多一次。
+fn parse_arguments(
+    arguments: impl IntoIterator<Item = OsString>,
+) -> Result<(Option<PathBuf>, Option<String>), AppError> {
+    let mut arguments = arguments.into_iter();
+    let mut config_path = None;
+    let mut selected_id = None;
+    while let Some(argument) = arguments.next() {
+        if argument == "--config" && config_path.is_none() {
+            let value = option_value(&mut arguments).ok_or(AppError::InvalidArguments(
+                "--config requires a configuration file path",
+            ))?;
+            config_path = Some(PathBuf::from(value));
+        } else if argument == "--device" && selected_id.is_none() {
+            let id = option_value(&mut arguments)
+                .ok_or(AppError::InvalidArguments("--device requires a device ID"))?
+                .into_string()
+                .map_err(|_| AppError::InvalidArguments("device ID must contain valid Unicode"))?;
+            selected_id = Some(id);
+        } else {
+            return Err(AppError::InvalidArguments(
+                "use [--config <file>] [--device <id>]; options must not be repeated",
+            ));
+        }
+    }
+    Ok((config_path, selected_id))
+}
+
+/// 取出选项后面的值；缺失、只有空白或以 -- 开头（像另一个选项）时视为没有提供。
+fn option_value(arguments: &mut impl Iterator<Item = OsString>) -> Option<OsString> {
+    arguments.next().filter(|value| {
+        let text = value.to_string_lossy();
+        !text.trim().is_empty() && !text.starts_with("--")
     })
 }
 
 /// 打开日志前保护主文件和已登记设备文件；只比较路径，不读取设备正文或创建文件。
 fn reject_log_path_conflicts(
+    log_path: &Path,
     config: &AppConfig,
     config_path: &Path,
     config_directory: &Path,
 ) -> Result<(), AppError> {
-    let log_path = if config.logging.file_path.is_absolute() {
-        config.logging.file_path.clone()
-    } else {
-        config_directory.join(&config.logging.file_path)
-    };
-    let log_path = comparison_path(&log_path);
+    let log_path = comparison_path(log_path);
     if log_path == comparison_path(config_path)
         || config
             .devices

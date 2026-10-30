@@ -1,9 +1,8 @@
 mod common;
 
 use common::{APP_CONFIG, TestResult};
-use nasnet::{
-    config::{AppConfig, DeviceReference, SCHEMA_VERSION, decode_app_config},
-    error::{ConfigError, ConfigIoError},
+use nasnet::config::{
+    AppConfig, ConfigError, ConfigIoError, DeviceReference, SCHEMA_VERSION, decode_app_config,
 };
 use std::error::Error;
 
@@ -225,5 +224,44 @@ fn parse_errors_keep_the_source_but_hide_input_in_display() {
     };
     assert!(matches!(error, ConfigIoError::TomlDecode(_)));
     assert!(error.source().is_some());
+    assert!(!error.to_string().contains("TEST_SECRET_SENTINEL"));
+}
+
+#[test]
+fn snapshot_failure_keeps_its_model_source_through_configuration_and_storage() {
+    use nasnet::{
+        config::DeviceData,
+        model::{Address, Device, ModelError},
+        store::StoreError,
+    };
+
+    let candidate = DeviceData {
+        id: "nas".into(),
+        name: "Test NAS".into(),
+        addresses: vec![Address {
+            id: "home".into(),
+            host: "https://TEST_SECRET_SENTINEL".into(),
+            priority: 0,
+        }],
+        connections: Vec::new(),
+    };
+    let error = Device::try_from(candidate)
+        .err()
+        .expect("a host with a scheme must fail");
+    let error = StoreError::config("devices/home.toml", ConfigIoError::from(error));
+    let config_error = error
+        .source()
+        .unwrap()
+        .downcast_ref::<ConfigIoError>()
+        .unwrap();
+    assert!(matches!(
+        config_error,
+        ConfigIoError::ModelValidation(ModelError::HostContainsSchemeOrPath)
+    ));
+    assert!(matches!(
+        config_error.source().unwrap().downcast_ref::<ModelError>(),
+        Some(ModelError::HostContainsSchemeOrPath)
+    ));
+    assert!(error.to_string().contains("devices/home.toml"));
     assert!(!error.to_string().contains("TEST_SECRET_SENTINEL"));
 }

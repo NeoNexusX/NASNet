@@ -3,6 +3,7 @@
 mod address;
 mod connection;
 mod device;
+mod error;
 
 pub use self::address::Address;
 pub use self::connection::{
@@ -10,4 +11,4 @@ pub use self::connection::{
     SmbDialect,
 };
 pub use self::device::Device;
-pub use crate::error::ConfigError;
+pub use self::error::ModelError;

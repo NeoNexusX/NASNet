@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::ConfigError;
+use crate::model::ModelError;
 
 /// 自动协商，或限制在对应的 SMB 版本系列；具体方言由后端协商。
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -34,27 +34,27 @@ pub struct SmbConfig {
 
 impl SmbConfig {
     /// 检查共享、账号和端口格式，不读取密码或检查远程权限。
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    pub fn validate(&self) -> Result<(), ModelError> {
         if self.share_name.trim().is_empty()
             || self.share_name.contains('/')
             || self.share_name.contains('\\')
             || self.share_name.contains('\0')
         {
-            return Err(ConfigError::InvalidSmbShareName);
+            return Err(ModelError::InvalidSmbShareName);
         }
         if let Some(path) = &self.base_path {
             if path.starts_with('/') || path.starts_with('\\') || path.contains('\0') {
-                return Err(ConfigError::InvalidSmbBasePath);
+                return Err(ModelError::InvalidSmbBasePath);
             }
         }
         if self.authentication.username.trim().is_empty() {
-            return Err(ConfigError::EmptySmbUsername);
+            return Err(ModelError::EmptySmbUsername);
         }
         if self.authentication.password.is_empty() {
-            return Err(ConfigError::EmptySmbPassword);
+            return Err(ModelError::EmptySmbPassword);
         }
         if self.port == Some(0) {
-            return Err(ConfigError::InvalidPort);
+            return Err(ModelError::InvalidPort);
         }
         Ok(())
     }

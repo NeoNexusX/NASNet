@@ -2,8 +2,8 @@ mod common;
 
 use common::{APP_CONFIG, TestResult};
 use nasnet::{
-    error::{ConfigIoError, StoreError},
-    store::StoreConnection,
+    config::ConfigIoError,
+    store::{StoreConnection, StoreError},
 };
 use std::{fs, io::ErrorKind};
 
@@ -53,7 +53,7 @@ fn corrupt_main_file_is_not_replaced_with_defaults() -> TestResult {
     for contents in ["", "schema_version = ["] {
         fs::write(&path, contents)?;
         assert!(
-            matches!(store.load_app(), Err(StoreError::ConfigFile { path: failed_path, source: ConfigIoError::TomlDecode(_) }) if failed_path == path)
+            matches!(store.load_app(), Err(StoreError::Config { path: failed_path, source: ConfigIoError::TomlDecode(_) }) if failed_path == path)
         );
         assert_eq!(fs::read_to_string(&path)?, contents);
     }
@@ -70,7 +70,7 @@ fn unsupported_version_keeps_configuration_file_context() -> TestResult {
     )?;
     let store = StoreConnection::new(directory.path());
     assert!(
-        matches!(store.load_app(), Err(StoreError::ConfigFile { path: failed_path, source: ConfigIoError::UnsupportedVersion(99) }) if failed_path == path)
+        matches!(store.load_app(), Err(StoreError::Config { path: failed_path, source: ConfigIoError::UnsupportedVersion(99) }) if failed_path == path)
     );
     Ok(())
 }

@@ -2,7 +2,7 @@
 mod fixtures;
 
 use nasnet::model::{
-    Address, ConfigError, ConnectionConfig, NfsConfig, NfsVersion, ProtocolConnection, SmbConfig,
+    Address, ConnectionConfig, ModelError, NfsConfig, NfsVersion, ProtocolConnection, SmbConfig,
 };
 
 fn nfs() -> NfsConfig {
@@ -39,7 +39,7 @@ fn rejects_empty_hosts() {
     for host in ["", "   "] {
         assert!(matches!(
             address(host).validate(),
-            Err(ConfigError::EmptyHost)
+            Err(ModelError::EmptyHost)
         ));
     }
 }
@@ -56,7 +56,7 @@ fn rejects_whitespace_in_hosts() {
         assert!(
             matches!(
                 address(host).validate(),
-                Err(ConfigError::HostContainsWhitespace)
+                Err(ModelError::HostContainsWhitespace)
             ),
             "host: {host:?}"
         );
@@ -72,7 +72,7 @@ fn rejects_schemes_and_paths_in_hosts() {
     ] {
         assert!(matches!(
             address(host).validate(),
-            Err(ConfigError::HostContainsSchemeOrPath)
+            Err(ModelError::HostContainsSchemeOrPath)
         ));
     }
 }
@@ -84,7 +84,7 @@ fn validates_address_id_before_host() {
         candidate.id = id.into();
         assert!(matches!(
             candidate.validate(),
-            Err(ConfigError::EmptyAddressId)
+            Err(ModelError::EmptyAddressId)
         ));
     }
 }
@@ -93,11 +93,11 @@ fn validates_address_id_before_host() {
 fn failed_address_additions_preserve_saved_values() {
     let mut device = fixtures::device();
     assert!(
-        matches!(device.try_add_address(Address { id: "address-1".into(), ..address("other.example.com") }), Err(ConfigError::DuplicateAddressId(id)) if id == "address-1")
+        matches!(device.try_add_address(Address { id: "address-1".into(), ..address("other.example.com") }), Err(ModelError::DuplicateAddressId(id)) if id == "address-1")
     );
     assert!(matches!(
         device.try_add_address(address("")),
-        Err(ConfigError::EmptyHost)
+        Err(ModelError::EmptyHost)
     ));
     assert_eq!(device.address_count(), 2);
     assert_eq!(device.addresses()[0].host, "192.168.50.10");
@@ -122,7 +122,7 @@ fn rejects_invalid_nfs_export_paths() {
         config.export_path = path.into();
         assert!(matches!(
             config.validate(),
-            Err(ConfigError::InvalidNfsExportPath)
+            Err(ModelError::InvalidNfsExportPath)
         ));
     }
 }
@@ -131,10 +131,10 @@ fn rejects_invalid_nfs_export_paths() {
 fn rejects_explicit_zero_ports_for_both_protocols() {
     let mut nfs = nfs();
     nfs.port = Some(0);
-    assert!(matches!(nfs.validate(), Err(ConfigError::InvalidPort)));
+    assert!(matches!(nfs.validate(), Err(ModelError::InvalidPort)));
     let mut smb = smb();
     smb.port = Some(0);
-    assert!(matches!(smb.validate(), Err(ConfigError::InvalidPort)));
+    assert!(matches!(smb.validate(), Err(ModelError::InvalidPort)));
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn smb_rejects_invalid_share_names() {
         config.share_name = share.into();
         assert!(matches!(
             config.validate(),
-            Err(ConfigError::InvalidSmbShareName)
+            Err(ModelError::InvalidSmbShareName)
         ));
     }
 }
@@ -165,7 +165,7 @@ fn smb_rejects_absolute_or_null_containing_base_paths() {
         config.base_path = Some(path.into());
         assert!(matches!(
             config.validate(),
-            Err(ConfigError::InvalidSmbBasePath)
+            Err(ModelError::InvalidSmbBasePath)
         ));
     }
 }
@@ -176,13 +176,13 @@ fn smb_rejects_empty_credentials_but_preserves_password_whitespace() {
     config.authentication.username = " ".into();
     assert!(matches!(
         config.validate(),
-        Err(ConfigError::EmptySmbUsername)
+        Err(ModelError::EmptySmbUsername)
     ));
     config.authentication.username = "nas-user".into();
     config.authentication.password.clear();
     assert!(matches!(
         config.validate(),
-        Err(ConfigError::EmptySmbPassword)
+        Err(ModelError::EmptySmbPassword)
     ));
     config.authentication.password = " demo-only-password ".into();
     assert!(config.validate().is_ok());
@@ -199,7 +199,7 @@ fn connection_id_is_validated_before_protocol_settings() {
     };
     assert!(matches!(
         candidate.validate(),
-        Err(ConfigError::EmptyConnectionId)
+        Err(ModelError::EmptyConnectionId)
     ));
 }
 
@@ -208,7 +208,7 @@ fn failed_connection_additions_preserve_saved_connections() {
     let mut device = fixtures::device();
     let existing = device.connections()[0].clone();
     assert!(
-        matches!(device.try_add_connection(existing), Err(ConfigError::DuplicateConnectionId(id)) if id == "nfs-data")
+        matches!(device.try_add_connection(existing), Err(ModelError::DuplicateConnectionId(id)) if id == "nfs-data")
     );
     let mut invalid = nfs();
     invalid.export_path = "relative".into();
@@ -217,7 +217,7 @@ fn failed_connection_additions_preserve_saved_connections() {
             id: "invalid".into(),
             config: ConnectionConfig::Nfs(invalid)
         }),
-        Err(ConfigError::InvalidNfsExportPath)
+        Err(ModelError::InvalidNfsExportPath)
     ));
     assert_eq!(device.connections().len(), 2);
     assert_eq!(device.connections()[0].id, "nfs-data");

@@ -2,7 +2,7 @@
 
 use super::address::Address;
 use super::connection::ProtocolConnection;
-use crate::error::ConfigError;
+use crate::model::ModelError;
 
 /// 一台设备拥有自己的名称和地址列表。
 pub struct Device {
@@ -18,7 +18,7 @@ impl Device {
         Self {
             id,
             name,
-            addresses: Vec::<Address>::new(),
+            addresses: Vec::new(),
             connections: Vec::new(),
         }
     }
@@ -47,14 +47,8 @@ impl Device {
     }
 
     /// 按 ID 查找保存的地址。找到时借出引用，找不到时返回 None。
-    #[allow(clippy::manual_find)]
     pub fn find_address(&self, id: &str) -> Option<&Address> {
-        for address in &self.addresses {
-            if address.id == id {
-                return Some::<&Address>(address);
-            }
-        }
-        None
+        self.addresses.iter().find(|saved| saved.id == id)
     }
 
     /// 生成按优先级升序排列的地址引用列表，不改变原来的保存顺序。
@@ -65,17 +59,17 @@ impl Device {
     }
 
     /// 校验后追加地址；失败时返回原因，设备里的地址列表保持原样。
-    pub fn try_add_address(&mut self, address: Address) -> Result<(), ConfigError> {
+    pub fn try_add_address(&mut self, address: Address) -> Result<(), ModelError> {
         address.validate()?;
         if self.find_address(&address.id).is_some() {
-            return Err(ConfigError::DuplicateAddressId(address.id));
+            return Err(ModelError::DuplicateAddressId(address.id));
         }
         self.addresses.push(address);
         Ok(())
     }
 
     /// 更新同 ID 的地址；成功保留原位置，失败保持原值和列表顺序。
-    pub fn try_update_address(&mut self, address: Address) -> Result<(), ConfigError> {
+    pub fn try_update_address(&mut self, address: Address) -> Result<(), ModelError> {
         address.validate()?;
         if let Some(existing) = self
             .addresses
@@ -85,16 +79,16 @@ impl Device {
             *existing = address;
             return Ok(());
         }
-        Err(ConfigError::AddressNotFound(address.id))
+        Err(ModelError::AddressNotFound(address.id))
     }
 
     /// 删除并交还地址的所有权；其余地址的保存顺序不变。
-    pub fn remove_address(&mut self, id: &str) -> Result<Address, ConfigError> {
+    pub fn remove_address(&mut self, id: &str) -> Result<Address, ModelError> {
         self.addresses
             .iter()
             .position(|saved| saved.id == id)
             .map(|index| self.addresses.remove(index))
-            .ok_or_else(|| ConfigError::AddressNotFound(id.to_owned()))
+            .ok_or_else(|| ModelError::AddressNotFound(id.to_owned()))
     }
 
     /// 借用已保存的协议连接，只允许读取。
@@ -108,17 +102,14 @@ impl Device {
     }
 
     /// 校验后追加协议连接；同一设备内连接 ID 不可重复。
-    pub fn try_add_connection(
-        &mut self,
-        connection: ProtocolConnection,
-    ) -> Result<(), ConfigError> {
+    pub fn try_add_connection(&mut self, connection: ProtocolConnection) -> Result<(), ModelError> {
         connection.validate()?;
         if self
             .connections
             .iter()
             .any(|saved| saved.id == connection.id)
         {
-            return Err(ConfigError::DuplicateConnectionId(connection.id));
+            return Err(ModelError::DuplicateConnectionId(connection.id));
         }
         self.connections.push(connection);
         Ok(())
@@ -128,7 +119,7 @@ impl Device {
     pub fn try_update_connection(
         &mut self,
         connection: ProtocolConnection,
-    ) -> Result<(), ConfigError> {
+    ) -> Result<(), ModelError> {
         connection.validate()?;
         if let Some(existing) = self
             .connections
@@ -138,15 +129,15 @@ impl Device {
             *existing = connection;
             return Ok(());
         }
-        Err(ConfigError::ConnectionNotFound(connection.id))
+        Err(ModelError::ConnectionNotFound(connection.id))
     }
 
     /// 删除并交还连接的所有权；其余连接的保存顺序不变。
-    pub fn remove_connection(&mut self, id: &str) -> Result<ProtocolConnection, ConfigError> {
+    pub fn remove_connection(&mut self, id: &str) -> Result<ProtocolConnection, ModelError> {
         self.connections
             .iter()
             .position(|saved| saved.id == id)
             .map(|index| self.connections.remove(index))
-            .ok_or_else(|| ConfigError::ConnectionNotFound(id.to_owned()))
+            .ok_or_else(|| ModelError::ConnectionNotFound(id.to_owned()))
     }
 }

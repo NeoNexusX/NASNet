@@ -3,7 +3,7 @@ mod fixtures;
 
 use nasnet::{
     config::DeviceData,
-    model::{Address, ConfigError, ConnectionConfig, Device},
+    model::{Address, ConnectionConfig, Device, ModelError},
 };
 
 #[test]
@@ -31,7 +31,7 @@ fn invalid_address_update_keeps_original_values() {
             host: String::new(),
             priority: 99
         }),
-        Err(ConfigError::EmptyHost)
+        Err(ModelError::EmptyHost)
     ));
     assert_eq!(device.addresses()[0].host, "192.168.50.10");
     assert_eq!(device.addresses()[0].priority, 1);
@@ -41,7 +41,7 @@ fn invalid_address_update_keeps_original_values() {
 fn missing_address_update_distinguishes_invalid_input() {
     let mut device = fixtures::device();
     assert!(
-        matches!(device.try_update_address(Address { id: "missing".into(), host: "nas.example.com".into(), priority: 1 }), Err(ConfigError::AddressNotFound(id)) if id == "missing")
+        matches!(device.try_update_address(Address { id: "missing".into(), host: "nas.example.com".into(), priority: 1 }), Err(ModelError::AddressNotFound(id)) if id == "missing")
     );
     assert!(matches!(
         device.try_update_address(Address {
@@ -49,7 +49,7 @@ fn missing_address_update_distinguishes_invalid_input() {
             host: String::new(),
             priority: 1
         }),
-        Err(ConfigError::EmptyHost)
+        Err(ModelError::EmptyHost)
     ));
     assert_eq!(device.address_count(), 2);
 }
@@ -62,12 +62,12 @@ fn removing_an_address_returns_ownership_and_preserves_other_order() {
     assert_eq!(device.addresses()[0].id, "address-2");
     assert!(matches!(
         device.remove_address("address-1"),
-        Err(ConfigError::AddressNotFound(_))
+        Err(ModelError::AddressNotFound(_))
     ));
     let mut empty = Device::new("empty".into(), "Empty".into());
     assert!(matches!(
         empty.remove_address("missing"),
-        Err(ConfigError::AddressNotFound(_))
+        Err(ModelError::AddressNotFound(_))
     ));
 }
 
@@ -105,7 +105,7 @@ fn invalid_connection_update_keeps_original_values() {
     }
     assert!(matches!(
         device.try_update_connection(replacement),
-        Err(ConfigError::EmptySmbUsername)
+        Err(ModelError::EmptySmbUsername)
     ));
     assert!(
         matches!(&device.connections()[1].config, ConnectionConfig::Smb(config) if config.authentication.username == "nas-user")
@@ -119,19 +119,19 @@ fn missing_connection_update_and_removal_keep_saved_values() {
     replacement.id = "missing".into();
     assert!(matches!(
         device.try_update_connection(replacement),
-        Err(ConfigError::ConnectionNotFound(_))
+        Err(ModelError::ConnectionNotFound(_))
     ));
     let removed = device.remove_connection("nfs-data").unwrap();
     assert_eq!(removed.id, "nfs-data");
     assert_eq!(device.connections()[0].id, "smb-data");
     assert!(matches!(
         device.remove_connection("nfs-data"),
-        Err(ConfigError::ConnectionNotFound(_))
+        Err(ModelError::ConnectionNotFound(_))
     ));
     let mut empty = Device::new("empty".into(), "Empty".into());
     assert!(matches!(
         empty.remove_connection("missing"),
-        Err(ConfigError::ConnectionNotFound(_))
+        Err(ModelError::ConnectionNotFound(_))
     ));
 }
 
@@ -183,7 +183,7 @@ fn restoration_rejects_blank_host() {
     snapshot.addresses[0].host.clear();
     assert!(matches!(
         Device::try_from(snapshot),
-        Err(ConfigError::EmptyHost)
+        Err(ModelError::EmptyHost)
     ));
 }
 
@@ -193,7 +193,7 @@ fn restoration_rejects_duplicate_address_ids() {
     snapshot.addresses.push(snapshot.addresses[0].clone());
     assert!(matches!(
         Device::try_from(snapshot),
-        Err(ConfigError::DuplicateAddressId(_))
+        Err(ModelError::DuplicateAddressId(_))
     ));
 }
 
@@ -203,7 +203,7 @@ fn restoration_rejects_duplicate_connection_ids() {
     snapshot.connections.push(snapshot.connections[0].clone());
     assert!(matches!(
         Device::try_from(snapshot),
-        Err(ConfigError::DuplicateConnectionId(_))
+        Err(ModelError::DuplicateConnectionId(_))
     ));
 }
 
@@ -215,7 +215,7 @@ fn restoration_revalidates_protocol_settings() {
     }
     assert!(matches!(
         Device::try_from(snapshot),
-        Err(ConfigError::InvalidNfsExportPath)
+        Err(ModelError::InvalidNfsExportPath)
     ));
     for case in 0..3 {
         let mut snapshot = DeviceData::from(&fixtures::device());
@@ -231,9 +231,9 @@ fn restoration_revalidates_protocol_settings() {
             .expect("invalid snapshot must fail");
         assert!(matches!(
             (case, error),
-            (0, ConfigError::EmptySmbUsername)
-                | (1, ConfigError::EmptySmbPassword)
-                | (2, ConfigError::InvalidPort)
+            (0, ModelError::EmptySmbUsername)
+                | (1, ModelError::EmptySmbPassword)
+                | (2, ModelError::InvalidPort)
         ));
     }
 }
@@ -244,13 +244,13 @@ fn restoration_rejects_blank_address_and_connection_ids() {
     snapshot.addresses[0].id.clear();
     assert!(matches!(
         Device::try_from(snapshot),
-        Err(ConfigError::EmptyAddressId)
+        Err(ModelError::EmptyAddressId)
     ));
     let mut snapshot = DeviceData::from(&fixtures::device());
     snapshot.connections[0].id.clear();
     assert!(matches!(
         Device::try_from(snapshot),
-        Err(ConfigError::EmptyConnectionId)
+        Err(ModelError::EmptyConnectionId)
     ));
 }
 

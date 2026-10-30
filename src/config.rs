@@ -1,11 +1,10 @@
 //! 配置快照与 TOML 转换；恢复时重新校验。
 
-pub use crate::error::ConfigIoError;
-use crate::model::{Address, ConfigError, Device, ProtocolConnection};
+use crate::model::{Address, Device, ModelError, ProtocolConnection};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
-    convert::TryFrom,
+    fmt,
     path::{Component, Path, PathBuf},
 };
 
@@ -40,7 +39,7 @@ impl From<&Device> for DeviceData {
 }
 
 impl TryFrom<DeviceData> for Device {
-    type Error = ConfigError;
+    type Error = ModelError;
 
     fn try_from(data: DeviceData) -> Result<Self, Self::Error> {
         let mut device = Device::new(data.id, data.name);
@@ -163,9 +162,9 @@ pub(crate) fn is_managed_device_path(path: &Path) -> bool {
 }
 
 pub fn encode_app_config(config: &AppConfig) -> Result<String, ConfigIoError> {
-    // TODO 4.3：先 validate，再 toml::to_string_pretty；不把设备内容塞回主文件。
+    // TODO P4.1：先 validate，再 toml::to_string_pretty；只编码主配置，不嵌入设备内容。
     let _ = config;
-    todo!("TODO 4.3: encode config.toml")
+    todo!("P4.1: encode config.toml")
 }
 
 pub fn decode_app_config(text: &str) -> Result<AppConfig, ConfigIoError> {
@@ -176,13 +175,106 @@ pub fn decode_app_config(text: &str) -> Result<AppConfig, ConfigIoError> {
 
 /// 输出包含明文密码，只供配置保存使用，不应写入日志。
 pub fn encode_device_toml(device: &Device) -> Result<String, ConfigIoError> {
-    // TODO 4.5：复用已验收 DeviceData::from 和 ConfigDocument，编码单设备 TOML。
+    // TODO P4.2：用 DeviceData::from 和 SCHEMA_VERSION 构造 ConfigDocument，再编码。
     let _ = device;
-    todo!("TODO 4.5: encode one device TOML document")
+    todo!("P4.2: encode one device TOML document")
 }
 
 pub fn decode_device_toml(text: &str) -> Result<Device, ConfigIoError> {
-    // TODO 4.6：解析 ConfigDocument，检查版本，再 Device::try_from；保留模型校验。
+    // TODO P4.3：解析 ConfigDocument → 检查版本 → Device::try_from，复用模型校验。
     let _ = text;
-    todo!("TODO 4.6: decode and validate one device TOML document")
+    todo!("P4.3: decode and validate one device TOML document")
+}
+
+/// 软件/日志设置与设备引用的校验错误。
+#[derive(Debug)]
+pub enum ConfigError {
+    DuplicateDeviceId(String),
+    InvalidSoftwareSettings,
+    InvalidLoggingSettings,
+    InvalidDeviceReference,
+    DuplicateDevicePath,
+    DeviceIdMismatch,
+    DeviceReferenceNotFound(String),
+}
+
+impl fmt::Display for ConfigError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DuplicateDeviceId(id) => write!(formatter, "Duplicate device ID: {id}"),
+            Self::InvalidSoftwareSettings => write!(formatter, "Invalid software settings"),
+            Self::InvalidLoggingSettings => write!(formatter, "Invalid logging settings"),
+            Self::InvalidDeviceReference => write!(formatter, "Invalid device reference"),
+            Self::DuplicateDevicePath => write!(formatter, "Duplicate device file path"),
+            Self::DeviceIdMismatch => write!(formatter, "Device ID does not match its reference"),
+            Self::DeviceReferenceNotFound(id) => {
+                write!(formatter, "Device reference not found: {id}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConfigError {}
+
+/// TOML 编解码与配置校验错误；Display 不包含原始配置正文。
+#[derive(Debug)]
+pub enum ConfigIoError {
+    TomlDecode(toml::de::Error),
+    TomlEncode(toml::ser::Error),
+    Validation(ConfigError),
+    ModelValidation(ModelError),
+    UnsupportedVersion(u32),
+}
+
+impl fmt::Display for ConfigIoError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TomlDecode(_) => write!(formatter, "Invalid TOML configuration"),
+            Self::TomlEncode(_) => write!(formatter, "Failed to encode TOML configuration"),
+            Self::ModelValidation(error) => {
+                write!(formatter, "Configuration validation failed: {error}")
+            }
+            Self::Validation(error) => {
+                write!(formatter, "Configuration validation failed: {error}")
+            }
+            Self::UnsupportedVersion(version) => {
+                write!(formatter, "Unsupported configuration version: {version}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConfigIoError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::TomlDecode(error) => Some(error),
+            Self::TomlEncode(error) => Some(error),
+            Self::Validation(error) => Some(error),
+            Self::ModelValidation(error) => Some(error),
+            Self::UnsupportedVersion(_) => None,
+        }
+    }
+}
+
+impl From<ConfigError> for ConfigIoError {
+    fn from(error: ConfigError) -> Self {
+        Self::Validation(error)
+    }
+}
+
+impl From<ModelError> for ConfigIoError {
+    fn from(error: ModelError) -> Self {
+        Self::ModelValidation(error)
+    }
+}
+
+impl From<toml::de::Error> for ConfigIoError {
+    fn from(error: toml::de::Error) -> Self {
+        Self::TomlDecode(error)
+    }
+}
+impl From<toml::ser::Error> for ConfigIoError {
+    fn from(error: toml::ser::Error) -> Self {
+        Self::TomlEncode(error)
+    }
 }

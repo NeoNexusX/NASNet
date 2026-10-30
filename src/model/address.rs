@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::ConfigError;
+use crate::model::ModelError;
 
 /// IP/域名与优先级记录；可公开构造候选值，保存时由设备校验。
 #[derive(Clone, Serialize, Deserialize)]
@@ -16,25 +16,25 @@ pub struct Address {
 
 impl Address {
     /// 只读检查地址，不自动修改 ID 或 Host，也不解析域名或连接网络。
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    pub fn validate(&self) -> Result<(), ModelError> {
         if self.id.trim().is_empty() {
-            return Err(ConfigError::EmptyAddressId);
+            return Err(ModelError::EmptyAddressId);
         }
         self.validate_host()?;
         Ok(())
     }
 
     /// Host 是 Address 的内部规则；不作为独立公开接口。
-    fn validate_host(&self) -> Result<(), ConfigError> {
+    fn validate_host(&self) -> Result<(), ModelError> {
         let host = &self.host;
         if host.trim().is_empty() {
-            return Err(ConfigError::EmptyHost);
+            return Err(ModelError::EmptyHost);
         }
         if host.chars().any(|c| c.is_whitespace()) {
-            return Err(ConfigError::HostContainsWhitespace);
+            return Err(ModelError::HostContainsWhitespace);
         }
         if host.contains("://") || host.contains('/') || host.contains('\\') {
-            return Err(ConfigError::HostContainsSchemeOrPath);
+            return Err(ModelError::HostContainsSchemeOrPath);
         }
         Ok(())
     }

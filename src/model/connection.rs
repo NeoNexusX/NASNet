@@ -5,7 +5,7 @@ mod smb;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::ConfigError;
+use crate::model::ModelError;
 
 pub use self::nfs::{NfsAuthSys, NfsConfig, NfsVersion};
 pub use self::smb::{SmbAuth, SmbConfig, SmbDialect};
@@ -28,9 +28,9 @@ pub struct ProtocolConnection {
 
 impl ProtocolConnection {
     /// 检查连接 ID，并按实际协议分派配置校验。
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    pub fn validate(&self) -> Result<(), ModelError> {
         if self.id.trim().is_empty() {
-            return Err(ConfigError::EmptyConnectionId);
+            return Err(ModelError::EmptyConnectionId);
         }
         match &self.config {
             ConnectionConfig::Nfs(nfs_config) => nfs_config.validate(),

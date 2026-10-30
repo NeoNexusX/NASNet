@@ -194,19 +194,6 @@ fn fatal_errors_appear_once_on_console_and_once_in_the_file() -> TestResult {
 }
 
 #[test]
-fn invalid_environment_filter_fails_before_opening_a_log_file() -> TestResult {
-    let fixture = Cli::new()?;
-    let output = fixture
-        .command()
-        .env("RUST_LOG", "nasnet=not_a_level")
-        .output()?;
-    assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8(output.stderr)?.contains("invalid RUST_LOG directive"));
-    assert!(!fixture.log_path().exists());
-    Ok(())
-}
-
-#[test]
 fn explicit_configuration_accepts_spaces_and_option_order() -> TestResult {
     let fixture = Cli::new()?;
     let original = fs::read(&fixture.config_path)?;
@@ -371,7 +358,7 @@ fn a_directory_at_the_log_file_path_is_an_initialization_error() -> TestResult {
 }
 
 #[test]
-fn invalid_and_removed_demo_arguments_are_rejected_before_logging() -> TestResult {
+fn invalid_arguments_are_rejected_before_logging() -> TestResult {
     let fixture = Cli::new()?;
     let invalid: &[&[&str]] = &[
         &["--config"],
@@ -382,9 +369,6 @@ fn invalid_and_removed_demo_arguments_are_rejected_before_logging() -> TestResul
         &["--config", "a", "--config", "b"],
         &["--unknown"],
         &["course01"],
-        &["lesson06"],
-        &["--intro"],
-        &["--demo"],
     ];
     for arguments in invalid {
         let output = fixture.raw_command().args(*arguments).output()?;
@@ -396,6 +380,44 @@ fn invalid_and_removed_demo_arguments_are_rejected_before_logging() -> TestResul
             1
         );
     }
+    assert!(!fixture.log_path().exists());
+    Ok(())
+}
+
+#[test]
+fn argument_validation_precedes_configuration_and_logging() -> TestResult {
+    let fixture = Cli::new()?;
+    let output = fixture
+        .raw_command()
+        .arg("--config")
+        .arg(fixture.directory.path().join("missing.toml"))
+        .arg("--unknown")
+        .env("RUST_LOG", "nasnet=not_a_level")
+        .output()?;
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr)?;
+    assert_eq!(stderr.matches("Invalid arguments:").count(), 1);
+    assert!(!stderr.contains("read configuration"));
+    assert!(!stderr.contains("RUST_LOG"));
+    assert!(output.stdout.is_empty());
+    assert!(!fixture.log_path().exists());
+    Ok(())
+}
+
+#[test]
+fn logging_initialization_failure_prevents_command_execution() -> TestResult {
+    let fixture = Cli::new()?;
+    let output = fixture
+        .command()
+        .env("RUST_LOG", "nasnet=not_a_level")
+        .args(["--device", "missing"])
+        .output()?;
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8(output.stderr)?;
+    assert_eq!(stderr.matches("Logging initialization failed:").count(), 1);
+    assert!(stderr.contains("invalid RUST_LOG directive"));
+    assert!(!stderr.contains("Device reference not found"));
+    assert!(output.stdout.is_empty());
     assert!(!fixture.log_path().exists());
     Ok(())
 }
