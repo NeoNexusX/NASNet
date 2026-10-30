@@ -477,7 +477,7 @@ cargo test --locked -- --nocapture                    # 显示测试中的打印
 // src/lib.rs
 mod front_of_house;                       // 编译器去找 src/front_of_house.rs
 
-pub use crate::front_of_house::hosting;   // 重新导出：外部可以直接用 crate::hosting
+  // 重新导出：外部可以直接用 crate::hosting
 
 pub fn eat_at_restaurant() {
     hosting::add_to_waitlist();

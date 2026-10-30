@@ -5,11 +5,11 @@
 //!
 //! 按 E4.1 → E4.5 的顺序把 todo!() 换成实现。main 依次检查每道题，
 //! 遇到未完成的题会停在对应的 todo!() 并显示题号。
-
+use core::error;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::{
-    error::Error,
-    fmt, fs, io,
-    path::{Component, Path, PathBuf},
+    error::Error, fmt, fs, io::{self, ErrorKind}, path::{ Component, Path, PathBuf}, result,
 };
 
 use serde::{Deserialize, Serialize};
@@ -64,14 +64,12 @@ fn sample_playlist() -> Playlist {
 
 /// TODO E4.1：用 toml::to_string_pretty 编码。
 fn encode_playlist(playlist: &Playlist) -> Result<String, toml::ser::Error> {
-    let _ = playlist;
-    todo!("E4.1: encode a playlist as TOML")
+    toml::to_string_pretty(playlist)
 }
 
 /// TODO E4.1：用 toml::from_str 解码；目标类型由返回值决定。
 fn decode_playlist(text: &str) -> Result<Playlist, toml::de::Error> {
-    let _ = text;
-    todo!("E4.1: decode a playlist from TOML")
+    toml::from_str(text)
 }
 
 fn check_toml() -> Result<(), Box<dyn Error>> {
@@ -111,32 +109,43 @@ enum PlaylistError {
 
 impl fmt::Display for PlaylistError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // TODO E4.2：用 match 为每个变体写一句英文摘要。
-        // Toml 变体不要拼接底层错误：它的内容会复述原始输入。
-        let _ = formatter;
-        todo!("E4.2: Display for PlaylistError")
+        match self {
+            PlaylistError::Toml(_) => write!(formatter,"Toml error",),
+            PlaylistError::UnsupportedVersion(version) => write!(formatter,"Unsupported Version: {}",version),
+            PlaylistError::EmptyName => write!(formatter,"Empty Name"),
+        }
     }
 }
 
 impl Error for PlaylistError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        // TODO E4.2：Toml 变体借出底层错误，其他变体返回 None。
-        todo!("E4.2: Error::source for PlaylistError")
+        match self {
+            PlaylistError::Toml(error) => Some(error),
+            _ => None,
+        }
     }
 }
 
 impl From<toml::de::Error> for PlaylistError {
     fn from(error: toml::de::Error) -> Self {
         // TODO E4.2：包装成 Toml 变体，让 ? 能自动转换。
-        let _ = error;
-        todo!("E4.2: From<toml::de::Error> for PlaylistError")
+        PlaylistError::Toml(error)
     }
 }
 
 /// TODO E4.2：解码（用 ? 转换错误）→ version 必须为 1 → name 不能只有空白。
 fn load_playlist(text: &str) -> Result<Playlist, PlaylistError> {
-    let _ = text;
-    todo!("E4.2: decode and validate a playlist")
+    let playlist = decode_playlist(text)?;
+
+    if playlist.version != 1  {
+
+        return  Err(PlaylistError::UnsupportedVersion(playlist.version).into());
+
+    } else if playlist.name.trim().is_empty() {
+        return Err(PlaylistError::EmptyName.into());
+    }
+    Ok(playlist)
+
 }
 
 fn check_errors() -> Result<(), Box<dyn Error>> {
@@ -189,8 +198,18 @@ fn check_errors() -> Result<(), Box<dyn Error>> {
 /// TODO E4.3：relative 必须非空、是相对路径、扩展名为 toml，且每一段都是 Component::Normal；
 /// 满足时返回 base_file 所在目录下的完整路径，否则返回 None。只检查形式，不访问磁盘。
 fn resolve_beside(base_file: &Path, relative: &Path) -> Option<PathBuf> {
-    let _ = (base_file, relative);
-    todo!("E4.3: resolve a relative TOML path beside a base file")
+    let mut path = PathBuf::new();
+    if relative.is_empty() 
+        || !relative.is_relative() 
+        || !(relative.extension()? == "toml")
+        || !relative.components().all(|part| matches!(part, Component::Normal(_))){
+        return None
+    } 
+    path.push(base_file.parent().unwrap());
+    path.push(relative);
+
+    return Some(path)
+
 }
 
 fn check_paths() {
@@ -225,15 +244,26 @@ fn check_paths() {
 
 /// TODO E4.4：读取整个文本文件；文件不存在时返回 Ok(None)，其他错误原样返回。
 fn read_optional(path: &Path) -> io::Result<Option<String>> {
-    let _ = path;
-    todo!("E4.4: read a text file that may be missing")
-}
+    match fs::read_to_string(path) {
+        Ok(data) => Ok(Some(data)),
+        Err(error) => match error.kind() {
+            ErrorKind::NotFound => Ok(None),
+            _ => Err(error),
+        },
+    }
 
+}
 /// TODO E4.4：用 OpenOptions 的 create_new 创建新文件再 write_all；目标已存在时返回错误，不覆盖。
 /// write_all 是 std::io::Write trait 的方法，需要先 use 这个 trait。
 fn write_new(path: &Path, contents: &str) -> io::Result<()> {
-    let _ = (path, contents);
-    todo!("E4.4: create a new file without overwriting")
+
+    let mut file = OpenOptions::new()
+                                .write(true)
+                                .create_new(true)
+                                .open(path)?;
+    file.write_all(contents.as_bytes())?;
+    file.sync_all()?;
+    Ok(())
 }
 
 fn check_files() -> Result<(), Box<dyn Error>> {
