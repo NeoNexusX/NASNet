@@ -5,7 +5,6 @@
 //!
 //! 按 E4.1 → E4.5 的顺序把 todo!() 换成实现。main 依次检查每道题，
 //! 遇到未完成的题会停在对应的 todo!() 并显示题号。
-use core::error;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::{
@@ -13,6 +12,8 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use tracing::{debug_span, info_span, info,debug,trace};
+use tracing_subscriber::fmt::format::FmtSpan;
 
 fn main() -> Result<(), Box<dyn Error>> {
     check_toml()?; // E4.1
@@ -253,6 +254,7 @@ fn read_optional(path: &Path) -> io::Result<Option<String>> {
     }
 
 }
+
 /// TODO E4.4：用 OpenOptions 的 create_new 创建新文件再 write_all；目标已存在时返回错误，不覆盖。
 /// write_all 是 std::io::Write trait 的方法，需要先 use 这个 trait。
 fn write_new(path: &Path, contents: &str) -> io::Result<()> {
@@ -304,7 +306,21 @@ fn check_files() -> Result<(), Box<dyn Error>> {
 ///
 /// 运行后对照输出：哪条事件没有出现？最后一条 info 属于哪个 span？
 fn trace_nested_spans() {
-    todo!("E4.5: install a subscriber and record events in nested spans")
+    let subscriber = tracing_subscriber::fmt()
+    .with_span_events(FmtSpan::ENTER | FmtSpan::EXIT)
+    .with_max_level(tracing::Level::DEBUG)
+    .init();
+    let span = info_span!("sync", playlist = "通勤");
+    let _enter = span.enter();
+
+    info!("WTF?");
+    {
+        let _inner_span = debug_span!("song", title = "晴天");
+        let _inner_enter = _inner_span.enter();
+        debug!(seconds = 269, "copied");
+    }
+    trace!("Fuck you bro");
+    info!("Fuck you too");
 }
 
 // ---------- E4.6 测试 ----------
@@ -314,3 +330,26 @@ fn trace_nested_spans() {
 // 2. resolve_beside(Path::new("config.toml"), Path::new("devices/a.toml")) 返回相对路径 devices/a.toml；
 // 3. 在 tempfile::tempdir() 中先 write_new 再 read_optional，读回相同的内容。
 // 运行：cargo test --locked --example course04
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn singel_test() -> Result<(), Box<dyn Error>> {
+     let pl  = Playlist{
+        version : 1,
+        name : "test".to_owned(),
+        songs: vec![
+            Song {
+                title: "test".to_owned(),
+                artist: None,
+                seconds: 269,
+            }
+        ]
+     };
+     let encode = encode_playlist(&pl)?;
+     let decode  = decode_playlist(&encode)?;
+     assert_eq!(decode,pl);
+     Ok(())
+    }
+}
