@@ -22,7 +22,7 @@ pub struct DeviceData {
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ConfigDocument {
+pub struct DeviceConfigDocument {
     pub schema_version: u32,
     pub device: DeviceData,
 }
@@ -112,7 +112,7 @@ impl Default for AppConfig {
         Self {
             schema_version: SCHEMA_VERSION,
             software: SoftwareSettings {
-                language: "zh-CN".to_owned(),
+                language: "en-US".to_owned(),
             },
             logging: LoggingSettings {
                 console_level: "info".to_owned(),
@@ -126,9 +126,7 @@ impl Default for AppConfig {
 
 impl AppConfig {
     pub fn validate(&self) -> Result<(), ConfigIoError> {
-        if self.schema_version != SCHEMA_VERSION {
-            return Err(ConfigIoError::UnsupportedVersion(self.schema_version));
-        }
+        validate_schema_version(self.schema_version)?;
         if self.software.language.trim().is_empty() {
             return Err(ConfigError::InvalidSoftwareSettings.into());
         }
@@ -162,9 +160,8 @@ pub(crate) fn is_managed_device_path(path: &Path) -> bool {
 }
 
 pub fn encode_app_config(config: &AppConfig) -> Result<String, ConfigIoError> {
-    // TODO P4.1：先 validate，再 toml::to_string_pretty；只编码主配置，不嵌入设备内容。
-    let _ = config;
-    todo!("P4.1: encode config.toml")
+    config.validate()?;
+    Ok(toml::to_string_pretty(config)?)
 }
 
 pub fn decode_app_config(text: &str) -> Result<AppConfig, ConfigIoError> {
@@ -175,15 +172,25 @@ pub fn decode_app_config(text: &str) -> Result<AppConfig, ConfigIoError> {
 
 /// 输出包含明文密码，只供配置保存使用，不应写入日志。
 pub fn encode_device_toml(device: &Device) -> Result<String, ConfigIoError> {
-    // TODO P4.2：用 DeviceData::from 和 SCHEMA_VERSION 构造 ConfigDocument，再编码。
-    let _ = device;
-    todo!("P4.2: encode one device TOML document")
+    let device = DeviceData::from(device);
+    let config = DeviceConfigDocument {
+        schema_version: SCHEMA_VERSION,
+        device,
+    };
+    Ok(toml::to_string_pretty(&config)?)
 }
 
 pub fn decode_device_toml(text: &str) -> Result<Device, ConfigIoError> {
-    // TODO P4.3：解析 ConfigDocument → 检查版本 → Device::try_from，复用模型校验。
-    let _ = text;
-    todo!("P4.3: decode and validate one device TOML document")
+    let document: DeviceConfigDocument = toml::from_str(text)?;
+    validate_schema_version(document.schema_version)?;
+    Ok(Device::try_from(document.device)?)
+}
+
+fn validate_schema_version(version: u32) -> Result<(), ConfigIoError> {
+    if version != SCHEMA_VERSION {
+        return Err(ConfigIoError::UnsupportedVersion(version));
+    }
+    Ok(())
 }
 
 /// 软件/日志设置与设备引用的校验错误。
@@ -273,6 +280,7 @@ impl From<toml::de::Error> for ConfigIoError {
         Self::TomlDecode(error)
     }
 }
+
 impl From<toml::ser::Error> for ConfigIoError {
     fn from(error: toml::ser::Error) -> Self {
         Self::TomlEncode(error)

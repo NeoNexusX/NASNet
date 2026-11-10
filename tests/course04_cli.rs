@@ -1,8 +1,9 @@
 mod common;
 
-use common::{APP_CONFIG, TestResult};
+use common::{APP_CONFIG, HOME_DEVICE, TestResult};
 use nasnet::config::{AppConfig, decode_app_config};
 use std::{
+    ffi::OsStr,
     fs,
     path::PathBuf,
     process::{Command, Output},
@@ -32,7 +33,11 @@ impl Cli {
     }
 
     fn raw_command(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_nasnet"));
+        self.command_for(env!("CARGO_BIN_EXE_nasnet"))
+    }
+
+    fn command_for(&self, executable: impl AsRef<OsStr>) -> Command {
+        let mut command = Command::new(executable);
         command
             .current_dir(&self.working_directory)
             .env_remove("RUST_LOG");
@@ -46,7 +51,7 @@ impl Cli {
     }
 
     fn write_config(&self, config: &AppConfig) -> TestResult {
-        // 仅生成测试输入；不调用尚未完成的项目 encode_app_config。
+        // 直接序列化，便于构造应被应用拒绝的配置。
         fs::write(&self.config_path, toml::to_string_pretty(config)?)?;
         Ok(())
     }
@@ -93,7 +98,7 @@ fn file_trace_and_console_info_are_filtered_independently() -> TestResult {
     assert!(!log.contains("\u{1b}["));
     assert!(stdout.contains("nas-home ->"));
     assert!(!stdout.contains("application initialized"));
-    assert!(!log.contains("Language: zh-CN"));
+    assert!(!log.contains("Language: en-US"));
     Ok(())
 }
 
@@ -246,18 +251,21 @@ fn absolute_log_paths_are_supported() -> TestResult {
 }
 
 #[test]
-fn default_missing_configuration_uses_the_executable_directory() -> TestResult {
+fn default_configuration_is_created_beside_the_executable() -> TestResult {
     let fixture = Cli::new()?;
     let executable = fixture.portable_binary()?;
     let portable = executable.parent().unwrap();
     fs::write(fixture.working_directory.join("config.toml"), "invalid = [")?;
-    let output = Command::new(&executable)
-        .current_dir(&fixture.working_directory)
-        .env_remove("RUST_LOG")
-        .output()?;
+    let output = fixture.command_for(&executable).output()?;
     succeeds(&output);
     assert!(portable.join("logs/nasnet.log").exists());
-    assert!(!portable.join("config.toml").exists());
+    let config = decode_app_config(&fs::read_to_string(portable.join("config.toml"))?)?;
+    assert_eq!(config.software.language, "en-US");
+    assert!(config.devices.is_empty());
+    assert_eq!(
+        fs::read_to_string(fixture.working_directory.join("config.toml"))?,
+        "invalid = ["
+    );
     assert!(!fixture.working_directory.join("logs").exists());
     Ok(())
 }
@@ -268,27 +276,43 @@ fn default_existing_configuration_is_loaded_beside_the_executable() -> TestResul
     let executable = fixture.portable_binary()?;
     let portable = executable.parent().unwrap();
     fs::copy(&fixture.config_path, portable.join("config.toml"))?;
-    let output = Command::new(&executable)
-        .current_dir(&fixture.working_directory)
-        .env_remove("RUST_LOG")
-        .output()?;
+    let output = fixture.command_for(&executable).output()?;
     succeeds(&output);
     assert!(String::from_utf8(output.stdout)?.contains("nas-backup"));
+    assert_eq!(
+        fs::read(portable.join("config.toml"))?,
+        APP_CONFIG.as_bytes()
+    );
     assert!(portable.join("logs/nasnet.log").exists());
     Ok(())
 }
 
 #[test]
-fn explicit_missing_configuration_is_not_replaced_with_defaults() -> TestResult {
+fn explicit_configuration_is_created_once_at_the_selected_path() -> TestResult {
     let fixture = Cli::new()?;
-    let output = fixture
-        .raw_command()
-        .arg("--config")
-        .arg(fixture.directory.path().join("missing.toml"))
-        .output()?;
-    assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8(output.stderr)?.contains("read configuration"));
+    let relative_path = "new/settings.toml";
+    let config_path = fixture.working_directory.join(relative_path);
+    let mut command = fixture.raw_command();
+    command.args(["--config", relative_path]);
+
+    succeeds(&command.output()?);
+    let mut config = decode_app_config(&fs::read_to_string(&config_path)?)?;
+    assert_eq!(config.software.language, "en-US");
+    assert!(
+        config_path
+            .with_file_name("logs")
+            .join("nasnet.log")
+            .is_file()
+    );
     assert!(!fixture.log_path().exists());
+
+    config.software.language = "zh-CN".into();
+    let customized = format!("# keep this comment\n{}", toml::to_string_pretty(&config)?);
+    fs::write(&config_path, &customized)?;
+    let output = command.output()?;
+    succeeds(&output);
+    assert!(String::from_utf8(output.stdout)?.contains("Language: zh-CN"));
+    assert_eq!(fs::read(&config_path)?, customized.as_bytes());
     Ok(())
 }
 
@@ -368,7 +392,7 @@ fn invalid_arguments_are_rejected_before_logging() -> TestResult {
         &["--device", "a", "--device", "b"],
         &["--config", "a", "--config", "b"],
         &["--unknown"],
-        &["course01"],
+        &["unexpected-positional-argument"],
     ];
     for arguments in invalid {
         let output = fixture.raw_command().args(*arguments).output()?;
@@ -419,5 +443,37 @@ fn logging_initialization_failure_prevents_command_execution() -> TestResult {
     assert!(!stderr.contains("Device reference not found"));
     assert!(output.stdout.is_empty());
     assert!(!fixture.log_path().exists());
+    Ok(())
+}
+
+// P4.12 --device 端到端
+
+#[test]
+fn selected_device_is_loaded_and_a_corrupt_device_file_is_reported_without_its_contents()
+-> TestResult {
+    let fixture = Cli::new()?;
+    let device_path = fixture
+        .config_path
+        .parent()
+        .unwrap()
+        .join("devices/home.toml");
+    fs::create_dir(device_path.parent().unwrap())?;
+    fs::write(&device_path, HOME_DEVICE)?;
+    let output = fixture.command().args(["--device", "nas-home"]).output()?;
+    succeeds(&output);
+    assert!(String::from_utf8(output.stdout)?.contains("Selected device: Home NAS (nas-home)"));
+    assert!(fixture.log()?.contains("selected device loaded"));
+
+    // 设备文件里有密码：报错只能指出是哪个文件，不能带出文件内容。
+    fs::write(&device_path, "TEST_SECRET_SENTINEL = [")?;
+    let output = fixture.command().args(["--device", "nas-home"]).output()?;
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(stderr.contains("devices/home.toml"));
+    assert!(stderr.contains("Invalid TOML configuration"));
+    assert!(!stderr.contains("TEST_SECRET_SENTINEL"));
+    let log = fixture.log()?;
+    assert_eq!(log.matches("application failed").count(), 1);
+    assert!(!log.contains("TEST_SECRET_SENTINEL"));
     Ok(())
 }

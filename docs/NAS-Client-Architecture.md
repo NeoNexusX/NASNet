@@ -218,7 +218,7 @@ SMB 的共享级授权与文件/目录级授权不能只凭一个客户端 readO
 
 ## 九、磁盘配置
 
-主文件保存软件设置、日志设置和有序的设备引用，每台设备单独一个 TOML 文件，格式以[主文件](../examples/configuration/config.toml)、[设备文件](../examples/configuration/devices/home.toml)和[空设备](../examples/configuration/devices/backup.toml)为准。设备文档的 schema_version、device、地址数组与协议标签对应 Rust 配置类型；软件和日志设置只在主文件中。启动时先读主文件再初始化日志，选择设备时才读对应的设备文件；读写、校验与失败边界见[第 04 课](lessons/04-errors-logging-and-toml-storage.md)。
+主文件保存软件设置、日志设置和有序的设备引用，每台设备单独一个 TOML 文件，格式以[主文件](../examples/configuration/config.toml)、[设备文件](../examples/configuration/devices/home.toml)和[空设备](../examples/configuration/devices/backup.toml)为准。设备文档的 schema_version、device、地址数组与协议标签对应 Rust 配置类型；软件和日志设置只在主文件中。启动时先准备主配置再初始化日志。主配置路径可由 `--config` 指定，文件缺失时用默认值创建，已有文件直接读取。选择设备时才读对应的设备文件。读写、校验与失败边界见[第 01–04 课](lessons/01-04-foundations.md)。
 
 ## 十、远程浏览与系统挂载
 
@@ -285,7 +285,7 @@ Windows 盘符映射属于用户登录会话，需在对应用户会话中处理
 desktop-ui       Vue / Tailwind 界面
 agent            用户后台调度、自动连接与挂载
 model            Device、Address 与协议区分模型
-router           按优先级选择地址
+remote           协议后端的统一契约（建立会话、读取目录），按优先级选择地址
 nfs              NFS 连接、文件读取与权限操作
 smb              SMB 连接、文件读取与安全信息操作
 nfs::ffi         libnfs 底层 FFI 绑定

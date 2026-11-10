@@ -42,10 +42,10 @@ impl SmbConfig {
         {
             return Err(ModelError::InvalidSmbShareName);
         }
-        if let Some(path) = &self.base_path {
-            if path.starts_with('/') || path.starts_with('\\') || path.contains('\0') {
-                return Err(ModelError::InvalidSmbBasePath);
-            }
+        if let Some(path) = &self.base_path
+            && (path.starts_with('/') || path.starts_with('\\') || path.contains('\0'))
+        {
+            return Err(ModelError::InvalidSmbBasePath);
         }
         if self.authentication.username.trim().is_empty() {
             return Err(ModelError::EmptySmbUsername);

@@ -15,7 +15,7 @@ pub struct Address {
 }
 
 impl Address {
-    /// 只读检查地址，不自动修改 ID 或 Host，也不解析域名或连接网络。
+    /// 只检查本地格式，保留输入原值。
     pub fn validate(&self) -> Result<(), ModelError> {
         if self.id.trim().is_empty() {
             return Err(ModelError::EmptyAddressId);
@@ -24,7 +24,6 @@ impl Address {
         Ok(())
     }
 
-    /// Host 是 Address 的内部规则；不作为独立公开接口。
     fn validate_host(&self) -> Result<(), ModelError> {
         let host = &self.host;
         if host.trim().is_empty() {

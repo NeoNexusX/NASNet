@@ -1,4 +1,4 @@
-//! 启动准备：解析命令行参数，定位并读取主配置，确定日志路径。只读文件，不安装日志，也不发事件。
+//! 解析参数、准备主配置和日志路径。
 
 use std::{
     ffi::OsString,
@@ -12,7 +12,6 @@ use nasnet::{
 
 use super::AppError;
 
-/// 后续步骤需要的一切：已校验的主配置、存储入口、日志文件路径和选中的设备。
 pub struct Startup {
     pub config: AppConfig,
     pub store: StoreConnection,
@@ -20,31 +19,26 @@ pub struct Startup {
     pub selected_id: Option<String>,
 }
 
-/// 先解析参数，参数有误时不访问任何文件；再读取主配置并检查日志路径。
+/// 参数通过校验后才访问文件系统。
 pub fn prepare(arguments: impl IntoIterator<Item = OsString>) -> Result<Startup, AppError> {
     let (config_argument, selected_id) = parse_arguments(arguments)?;
-    let explicit_config = config_argument.is_some();
-    let config_path = match config_argument {
-        // 命令行的相对路径相对启动时的 cwd；之后的内部路径都以主配置所在目录为基准。
-        Some(path) => std::path::absolute(path)?,
-        None => std::env::current_exe()?
-            .parent()
-            .ok_or(StoreError::InvalidConfigPath)?
-            .join("config.toml"),
+    let store = match config_argument {
+        // 命令行路径以当前工作目录为基准。
+        Some(path) => StoreConnection::from_config_path(std::path::absolute(path)?),
+        None => StoreConnection::new(
+            std::env::current_exe()?
+                .parent()
+                .ok_or(StoreError::InvalidConfigPath)?,
+        ),
     };
+    let config_path = store.config_path();
     let config_directory = match (config_path.parent(), config_path.file_name()) {
-        (Some(directory), Some(_)) => directory.to_path_buf(),
+        (Some(directory), Some(_)) => directory,
         _ => return Err(StoreError::InvalidConfigPath.into()),
     };
-    let store = StoreConnection::from_config_path(config_path);
-    let config = if explicit_config {
-        store.load_app_required()?
-    } else {
-        store.load_app()?
-    };
-    // 相对路径接在配置目录后面；绝对路径 join 后会整体替换配置目录。
+    let config = store.load_app(false)?;
     let log_path = config_directory.join(&config.logging.file_path);
-    reject_log_path_conflicts(&log_path, &config, store.config_path(), &config_directory)?;
+    reject_log_path_conflicts(&log_path, &config, config_path, config_directory)?;
 
     Ok(Startup {
         config,
@@ -54,7 +48,6 @@ pub fn prepare(arguments: impl IntoIterator<Item = OsString>) -> Result<Startup,
     })
 }
 
-/// 接受 [--config <文件>] [--device <ID>]，顺序任意，每个选项最多一次。
 fn parse_arguments(
     arguments: impl IntoIterator<Item = OsString>,
 ) -> Result<(Option<PathBuf>, Option<String>), AppError> {
@@ -82,7 +75,6 @@ fn parse_arguments(
     Ok((config_path, selected_id))
 }
 
-/// 取出选项后面的值；缺失、只有空白或以 -- 开头（像另一个选项）时视为没有提供。
 fn option_value(arguments: &mut impl Iterator<Item = OsString>) -> Option<OsString> {
     arguments.next().filter(|value| {
         let text = value.to_string_lossy();
@@ -90,7 +82,7 @@ fn option_value(arguments: &mut impl Iterator<Item = OsString>) -> Option<OsStri
     })
 }
 
-/// 打开日志前保护主文件和已登记设备文件；只比较路径，不读取设备正文或创建文件。
+/// 避免把日志写进主配置或设备文件。
 fn reject_log_path_conflicts(
     log_path: &Path,
     config: &AppConfig,
@@ -111,7 +103,6 @@ fn reject_log_path_conflicts(
     Ok(())
 }
 
-/// 已存在路径优先解析符号链接；其余路径消去 . / ..，Windows 再做基本 ASCII 大小写比较。
 fn comparison_path(path: &Path) -> PathBuf {
     let mut lexical = PathBuf::new();
     for component in path.components() {
@@ -123,7 +114,7 @@ fn comparison_path(path: &Path) -> PathBuf {
             component => lexical.push(component.as_os_str()),
         }
     }
-    // 原路径解析优先，保留已存在符号链接的实际含义；否则尝试规整后的已存在路径。
+    // 优先保留符号链接的实际含义。
     let mut resolved = path
         .canonicalize()
         .or_else(|_| lexical.canonicalize())

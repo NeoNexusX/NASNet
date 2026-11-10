@@ -1,15 +1,22 @@
-//! config.toml 管理软件设置与设备引用；设备文件独立读写。库内不输出日志。
+//! 主配置与设备文件的存储。
 
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::{fmt, io};
+use std::{
+    fmt,
+    fs::{self, OpenOptions},
+    io::{self, Write},
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use crate::{
-    config::{AppConfig, ConfigIoError, DeviceReference, decode_app_config},
+    config::{
+        AppConfig, ConfigError, ConfigIoError, DeviceReference, decode_app_config,
+        decode_device_toml, encode_app_config, encode_device_toml, is_managed_device_path,
+    },
     model::Device,
 };
 
-/// 只持有主配置路径，不代表网络连接，也不在构造时读取设备。
+/// 以主配置路径为基准访问配置文件。
 pub struct StoreConnection {
     config_path: PathBuf,
 }
@@ -17,12 +24,9 @@ pub struct StoreConnection {
 impl StoreConnection {
     /// 使用目录中的 config.toml。
     pub fn new(directory: impl Into<PathBuf>) -> Self {
-        Self {
-            config_path: directory.into().join("config.toml"),
-        }
+        Self::from_config_path(directory.into().join("config.toml"))
     }
 
-    /// 启动入口已选定明确的主文件；不隐式读取，也不改用进程工作目录。
     pub fn from_config_path(config_path: impl Into<PathBuf>) -> Self {
         Self {
             config_path: config_path.into(),
@@ -33,41 +37,76 @@ impl StoreConnection {
         &self.config_path
     }
 
-    /// 显式指定的配置必须存在；保留路径与来源，不把损坏配置视为默认值。
-    pub fn load_app_required(&self) -> Result<AppConfig, StoreError> {
-        let text = std::fs::read_to_string(&self.config_path)
-            .map_err(|error| StoreError::io("read configuration", &self.config_path, error))?;
+    /// 读取主配置。`required` 为 false 时允许初始化缺失的文件。
+    pub fn load_app(&self, required: bool) -> Result<AppConfig, StoreError> {
+        let text = match fs::read_to_string(&self.config_path) {
+            Err(error) if !required && error.kind() == io::ErrorKind::NotFound => {
+                return self.create_default_app();
+            }
+            result => result
+                .map_err(|error| StoreError::io("read configuration", &self.config_path, error))?,
+        };
         decode_app_config(&text).map_err(|error| StoreError::config(&self.config_path, error))
     }
 
-    /// 默认位置的主文件可以不存在：只有 NotFound 换成内置默认值，其他错误照常返回。
-    pub fn load_app(&self) -> Result<AppConfig, StoreError> {
-        match self.load_app_required() {
-            Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-                Ok(AppConfig::default())
-            }
-            result => result,
+    fn create_default_app(&self) -> Result<AppConfig, StoreError> {
+        let config = AppConfig::default();
+        let text = encode_app_config(&config)
+            .map_err(|error| StoreError::config(&self.config_path, error))?;
+        let temp = stage_file(&self.config_path, text.as_bytes())?;
+
+        // 只发布完整文件。若另一进程先创建了目标，读取它写入的配置。
+        let result = fs::hard_link(&temp, &self.config_path);
+        let _ = fs::remove_file(&temp);
+        match result {
+            Ok(()) => Ok(config),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => self.load_app(true),
+            Err(error) => Err(StoreError::io(
+                "create configuration",
+                &self.config_path,
+                error,
+            )),
         }
     }
 
     pub fn resolve_device_path(&self, reference: &DeviceReference) -> Result<PathBuf, StoreError> {
-        // TODO P4.4：先用 is_managed_device_path 检查路径形式，再相对 config.toml 所在目录组合。
-        // 不相对进程 cwd，也不要求文件已经存在。
-        let _ = reference;
-        todo!("P4.4: resolve a device path relative to config.toml")
+        if !is_managed_device_path(&reference.path) {
+            return Err(StoreError::config(
+                &self.config_path,
+                ConfigError::InvalidDeviceReference.into(),
+            ));
+        }
+        let device_path = self
+            .config_path
+            .parent()
+            .ok_or(StoreError::InvalidConfigPath)?
+            .join(&reference.path);
+
+        Ok(device_path)
     }
 
     pub fn load_device(&self, reference: &DeviceReference) -> Result<Device, StoreError> {
-        // TODO P4.5：解析路径 → 只读这一个设备文件 → decode_device_toml → 核对文件内 ID 与引用一致。
-        // 已登记的设备文件缺失必须报错，不能当成空设备。
-        let _ = reference;
-        todo!("P4.5: load and validate one referenced device")
+        let path = self.resolve_device_path(reference)?;
+
+        let device_data = fs::read_to_string(&path)
+            .map_err(|error| StoreError::io("read device", &path, error))?;
+
+        let device =
+            decode_device_toml(&device_data).map_err(|error| StoreError::config(&path, error))?;
+
+        if device.id() != reference.id {
+            return Err(StoreError::config(
+                &path,
+                ConfigError::DeviceIdMismatch.into(),
+            ));
+        }
+        Ok(device)
     }
 
     pub fn save_app(&mut self, config: &AppConfig) -> Result<(), StoreError> {
-        // TODO P4.7：encode_app_config 成功后再 write_atomic 主配置；不读取或重写任何设备文件。
-        let _ = config;
-        todo!("P4.7: save config.toml without rewriting devices")
+        let text = encode_app_config(config)
+            .map_err(|error| StoreError::config(&self.config_path, error))?;
+        write_atomic(&self.config_path, text.as_bytes())
     }
 
     pub fn save_device(
@@ -75,44 +114,113 @@ impl StoreConnection {
         reference: &DeviceReference,
         device: &Device,
     ) -> Result<(), StoreError> {
-        // TODO P4.8：解析路径并核对 ID，再 encode_device_toml，最后 write_atomic 这一个设备文件。
-        // 不重写 config.toml 或其他设备文件。
-        let _ = (reference, device);
-        todo!("P4.8: save only the selected device file")
+        let path = self.resolve_device_path(reference)?;
+        save_device_at(&path, &reference.id, device)
     }
 
+    /// 先保存设备，再发布引用，避免主配置引用缺失文件。
     pub fn register_device(
         &mut self,
         config: &mut AppConfig,
         reference: DeviceReference,
         device: &Device,
     ) -> Result<(), StoreError> {
-        // TODO P4.9：在候选副本中追加引用并校验；新路径上已有文件时拒绝覆盖。
-        // 先保存设备文件，再保存候选主配置，都成功后才替换内存中的 config。
-        // 主配置保存失败可能留下未引用的设备文件：返回错误即可，不声称多文件回滚。
-        let _ = (config, reference, device);
-        todo!("P4.9: register a device, device file first, then config.toml")
+        let mut new_config = config.clone();
+
+        new_config.devices.push(reference);
+
+        let reference = new_config.devices.last().expect("刚添加了一条设备引用");
+
+        new_config
+            .validate()
+            .map_err(|error| StoreError::config(&self.config_path, error))?;
+
+        let destination = self.resolve_device_path(reference)?;
+
+        if destination
+            .try_exists()
+            .map_err(|err| StoreError::io("check device path", &destination, err))?
+        {
+            return Err(StoreError::io(
+                "register device",
+                &destination,
+                io::ErrorKind::AlreadyExists.into(),
+            ));
+        }
+
+        save_device_at(&destination, &reference.id, device)?;
+        self.save_app(&new_config)?;
+
+        *config = new_config;
+
+        Ok(())
     }
 
+    /// 移除清单中的引用，保留设备文件。
     pub fn remove_device_reference(
         &mut self,
         config: &mut AppConfig,
         id: &str,
     ) -> Result<bool, StoreError> {
-        // TODO P4.10：只从候选副本移除引用并保存，成功后替换内存中的 config；不存在返回 false。
-        // 设备文件保留，不在这里删除。
-        let _ = (config, id);
-        todo!("P4.10: remove a device reference without deleting its file")
+        let Some(index) = config.devices.iter().position(|device| device.id == id) else {
+            return Ok(false);
+        };
+        let mut new_config = config.clone();
+        new_config.devices.remove(index);
+
+        self.save_app(&new_config)?;
+
+        *config = new_config;
+        Ok(true)
     }
 }
 
-/// 每次只替换一个目标文件，不提供多文件事务。
+fn save_device_at(path: &Path, expected_id: &str, device: &Device) -> Result<(), StoreError> {
+    if device.id() != expected_id {
+        return Err(StoreError::config(
+            path,
+            ConfigError::DeviceIdMismatch.into(),
+        ));
+    }
+    let text = encode_device_toml(device).map_err(|error| StoreError::config(path, error))?;
+    write_atomic(path, text.as_bytes())
+}
+
+/// 原子替换单个文件。
 pub fn write_atomic(destination: &Path, contents: &[u8]) -> Result<(), StoreError> {
-    // TODO P4.6：创建父目录 → 同目录 create_new 临时文件 → write_all → sync_all → 关闭 → rename。
-    // 任一步失败时尽力删除本次的临时文件并返回原始错误；不先删除目标，不删除别人的文件。
-    // 未实现目录 fsync，不承诺完整的掉电持久性。
-    let _ = (temporary_path(destination), contents);
-    todo!("P4.6: atomically replace one file")
+    let temp = stage_file(destination, contents)?;
+    if let Err(error) = fs::rename(&temp, destination) {
+        let _ = fs::remove_file(&temp);
+        return Err(StoreError::io("replace file", destination, error));
+    }
+    Ok(())
+}
+
+fn stage_file(destination: &Path, contents: &[u8]) -> Result<PathBuf, StoreError> {
+    let parent = destination.parent().ok_or(StoreError::InvalidConfigPath)?;
+    fs::create_dir_all(parent)
+        .map_err(|error| StoreError::io("create directory", parent, error))?;
+
+    let temp = temporary_path(destination);
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .map_err(|error| StoreError::io("create temporary file", &temp, error))?;
+
+    let result = file
+        .write_all(contents)
+        .map_err(|error| StoreError::io("write temporary file", &temp, error))
+        .and_then(|()| {
+            file.sync_all()
+                .map_err(|error| StoreError::io("sync temporary file", &temp, error))
+        });
+    drop(file);
+    if let Err(error) = result {
+        let _ = fs::remove_file(&temp);
+        return Err(error);
+    }
+    Ok(temp)
 }
 
 /// 同一目录下的唯一临时文件名：进程号区分进程，序号区分同一进程内的多次调用。

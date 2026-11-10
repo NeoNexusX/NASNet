@@ -1,4 +1,4 @@
-//! 二进制应用：准备启动 → 安装日志 → 打印配置与选中的设备。所有失败都在 run 中向终端报告一次。
+//! 应用入口与终端错误报告。
 
 mod logging;
 mod startup;
@@ -20,7 +20,6 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     }
 }
 
-/// 每一步失败都立即返回，后面的步骤不会执行。
 fn execute(arguments: impl IntoIterator<Item = OsString>) -> Result<(), AppError> {
     let startup = startup::prepare(arguments)?;
     logging::init(&startup.config.logging, &startup.log_path)?;
@@ -66,7 +65,7 @@ fn show(startup: &Startup) -> Result<(), AppError> {
     Ok(())
 }
 
-/// 应用边界汇总的错误；核心库不依赖它。
+/// 应用层汇总的错误。
 #[derive(Debug)]
 enum AppError {
     InvalidArguments(&'static str),

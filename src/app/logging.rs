@@ -18,7 +18,7 @@ use super::AppError;
 // 此 target 专属于应用边界的致命错误：文件记录事件，终端另行展示一次操作失败摘要。
 const ERROR_TARGET: &str = "nasnet::app_error";
 
-/// 读取并校验主配置后调用一次；file_path 已由 startup 解析。RUST_LOG 只覆盖终端层，不影响文件层。
+/// 安装日志。`RUST_LOG` 只覆盖终端级别。
 pub fn init(settings: &LoggingSettings, file_path: &Path) -> Result<(), AppError> {
     let console_filter = match std::env::var("RUST_LOG") {
         Ok(value) => EnvFilter::try_new(value)
@@ -75,8 +75,7 @@ pub fn init(settings: &LoggingSettings, file_path: &Path) -> Result<(), AppError
         .map_err(|_| AppError::Logging("a global subscriber is already installed".to_owned()))
 }
 
-/// 只记录安全的顶层摘要；底层 TOML source 可能携带原始输入，不递归打印。
-/// 终端层排除此 target，由 app::run 统一展示一次，避免重复。
+/// 记录顶层摘要，避免输出 TOML 错误源中的原始输入。
 pub fn record_error(error: &AppError) {
     tracing::error!(target: ERROR_TARGET, error = %error, "application failed");
 }
